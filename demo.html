@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Identity Platform SDK - Demo</title>
+  <link rel="stylesheet" href="./demo.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🔐 Identity Platform SDK</h1>
+      <p>Demo Application - Account Management & Collaboration</p>
+    </header>
+
+    <!-- Authentication Gate -->
+    <div id="auth-gate" class="section">
+      <div class="card">
+        <h2>Welcome</h2>
+        <p id="auth-message">Loading...</p>
+
+        <!-- Mode Switcher -->
+        <div id="mode-switcher" class="mode-switcher" style="display: none;">
+          <button id="show-login" class="mode-btn active">Login</button>
+          <button id="show-signup" class="mode-btn">Create Account</button>
+          <button id="show-import" class="mode-btn">Import Account</button>
+        </div>
+
+        <!-- Login Form -->
+        <form id="login-form" style="display: none;">
+          <div class="form-group">
+            <label for="login-username">Username</label>
+            <select id="login-username" required>
+              <option value="">Select account...</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="login-password">Password</label>
+            <input type="password" id="login-password" required placeholder="Enter your password">
+          </div>
+          <div id="login-error" class="error" style="display: none;"></div>
+          <button type="submit" class="btn btn-primary">Unlock Account</button>
+        </form>
+
+        <!-- Signup Form -->
+        <form id="signup-form" style="display: none;">
+          <div class="form-group">
+            <label for="signup-username">Username</label>
+            <input type="text" id="signup-username" required placeholder="Choose a username" autocomplete="username">
+          </div>
+          <div class="form-group">
+            <label for="signup-password">Password</label>
+            <input type="password" id="signup-password" required minlength="8" placeholder="At least 8 characters" autocomplete="new-password">
+          </div>
+          <div class="form-group">
+            <label for="signup-confirm">Confirm Password</label>
+            <input type="password" id="signup-confirm" required placeholder="Re-enter password" autocomplete="new-password">
+          </div>
+          <div id="signup-error" class="error" style="display: none;"></div>
+          <button type="submit" class="btn btn-primary">Create Account</button>
+        </form>
+
+        <!-- Import Account Form -->
+        <form id="import-form" style="display: none;">
+          <p class="info-text">
+            🔄 <strong>Recover your account</strong> from Filebase using your public key and password.
+            Your encrypted backup will be fetched and decrypted.
+          </p>
+          <div class="form-group">
+            <label for="import-publickey">Public Key</label>
+            <textarea id="import-publickey" required placeholder="Paste your public key here..." rows="2"></textarea>
+            <small>Get this from your identity card or QR code</small>
+          </div>
+          <div class="form-group">
+            <label for="import-username">New Username (Local)</label>
+            <input type="text" id="import-username" required placeholder="Username for this device" autocomplete="username">
+            <small>This will be the username on this device</small>
+          </div>
+          <div class="form-group">
+            <label for="import-password">Password</label>
+            <input type="password" id="import-password" required placeholder="Your account password" autocomplete="current-password">
+            <small>Same password you used when creating the account</small>
+          </div>
+          <div id="import-error" class="error" style="display: none;"></div>
+          <div id="import-status" class="info" style="display: none;"></div>
+          <button type="submit" class="btn btn-primary">Import Account</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Main App (shown after authentication) -->
+    <div id="main-app" style="display: none;">
+
+      <!-- User Identity Card -->
+      <div class="section">
+        <div class="card">
+          <h2>Your Identity</h2>
+
+          <div class="identity-container">
+            <!-- QR Code / Avatar Display -->
+            <div class="qr-avatar-container">
+              <div id="qr-code-display" class="qr-code-wrapper">
+                <canvas id="qr-canvas"></canvas>
+              </div>
+              <div id="avatar-display" class="avatar-wrapper" style="display: none;">
+                <img id="avatar-img" src="" alt="Avatar">
+              </div>
+              <button id="btn-edit-profile" class="btn btn-small btn-secondary">Edit Profile</button>
+            </div>
+
+            <!-- Identity Info -->
+            <div id="identity-info" class="identity-info">
+              <!-- Populated dynamically -->
+            </div>
+          </div>
+
+          <div class="button-group">
+            <button id="btn-logout" class="btn btn-secondary">Lock Account</button>
+            <button id="btn-copy-key" class="btn btn-secondary">Copy Public Key</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Edit Profile Dialog (hidden by default) -->
+      <div id="profile-dialog" class="dialog-overlay" style="display: none;">
+        <div class="dialog">
+          <h2>Edit Profile</h2>
+          <form id="profile-form">
+            <div class="form-group">
+              <label for="profile-displayname">Display Name</label>
+              <input type="text" id="profile-displayname" placeholder="e.g., Alice Wonderland">
+            </div>
+            <div class="form-group">
+              <label for="profile-bio">Bio</label>
+              <textarea id="profile-bio" placeholder="Tell others about yourself..." rows="3" maxlength="280"></textarea>
+              <small>Max 280 characters - visible to anyone who knows your public key</small>
+            </div>
+            <div class="form-group">
+              <label for="profile-avatar">Avatar Image</label>
+              <input type="file" id="profile-avatar" accept="image/*">
+              <small>Upload a square image (will be converted to base64, max 500KB recommended)</small>
+            </div>
+            <div id="avatar-preview" class="avatar-preview" style="display: none;">
+              <img id="avatar-preview-img" src="" alt="Avatar preview">
+              <button type="button" id="btn-remove-avatar" class="btn btn-small btn-secondary">Remove Avatar</button>
+            </div>
+            <div class="button-group">
+              <button type="submit" class="btn btn-primary">Save Profile</button>
+              <button type="button" id="btn-cancel-profile" class="btn btn-secondary">Cancel</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- Collaborators Section -->
+      <div class="section">
+        <div class="card">
+          <div class="card-header">
+            <h2>Collaborators</h2>
+            <button id="btn-add-collaborator" class="btn btn-primary">+ Add Collaborator</button>
+          </div>
+
+          <div id="collaborators-list" class="collaborators-list">
+            <!-- Populated dynamically -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Add Collaborator Form (hidden by default) -->
+      <div id="add-collaborator-section" class="section" style="display: none;">
+        <div class="card">
+          <h2>Add New Collaborator</h2>
+          <p class="info-text" id="auto-discovery-info">
+            🎉 <strong>Auto-Discovery:</strong> When you add a collaborator by their public key,
+            the SDK will automatically fetch their profile (name, avatar, bio) from Filebase!
+            <br><br>
+            <strong>Status:</strong> Remote storage is <span id="remote-status" style="font-weight: 700;">checking...</span>
+          </p>
+          <form id="add-collaborator-form">
+            <div class="form-group">
+              <label for="collaborator-name">Display Name (Optional)</label>
+              <input type="text" id="collaborator-name" placeholder="e.g., Alice (fallback if profile not found)">
+              <small>Leave empty to use their remote profile name</small>
+            </div>
+            <div class="form-group">
+              <label for="collaborator-key">Public Key</label>
+              <textarea id="collaborator-key" required placeholder="Paste public key here (starts with 'z')..." rows="3"></textarea>
+              <small>Get this from your collaborator's identity card or QR code</small>
+            </div>
+            <div id="add-collaborator-status" class="info" style="display: none;"></div>
+            <div id="add-collaborator-error" class="error" style="display: none;"></div>
+            <div class="button-group">
+              <button type="submit" class="btn btn-primary">Add Collaborator</button>
+              <button type="button" id="btn-cancel-add" class="btn btn-secondary">Cancel</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- Statistics -->
+      <div class="section">
+        <div class="card">
+          <h2>Platform Statistics</h2>
+          <div id="stats-display" class="stats-grid">
+            <!-- Populated dynamically -->
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div id="toast" class="toast" style="display: none;"></div>
+  </div>
+
+  <!-- Import Maps for Dependencies -->
+  <script type="importmap">
+  {
+    "imports": {
+      "@localPod/identity-platform": "./sdk/index.js",
+      "dexie": "https://cdn.jsdelivr.net/npm/dexie@3.2.3/+esm",
+      "@noble/secp256k1": "https://cdn.jsdelivr.net/npm/@noble/secp256k1@2.1.0/+esm",
+      "@scure/base": "https://cdn.jsdelivr.net/npm/@scure/base@1.1.1/+esm",
+      "qrcode": "https://cdn.jsdelivr.net/npm/qrcode@1.5.3/+esm"
+    }
+  }
+  </script>
+
+  <script type="module" src="./demo.js"></script>
+</body>
+</html>
