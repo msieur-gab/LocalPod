@@ -14,6 +14,9 @@ import {
   deleteAccount,
   saveBackup,
   getBackup,
+  checkLoginLockout,
+  recordFailedLogin,
+  clearLoginAttempts,
 } from '../storage/PlatformDatabase.js';
 
 /**
@@ -45,20 +48,40 @@ export class AccountService {
 
   /**
    * Get the currently unlocked identity (safe copy)
+   * SECURITY: Does NOT expose private key to prevent accidental leakage
+   * Use getPrivateKeyBytes() internally when needed for crypto operations
    * @returns {Object|null}
    */
   getUnlockedIdentity() {
     if (!this.unlockedIdentity) return null;
 
-    const { did, publicKey, privateKey, username, createdAt } = this.unlockedIdentity;
+    const { did, publicKey, username, createdAt } = this.unlockedIdentity;
 
     return {
       did,
       publicKey: bytesToBase58(publicKey),
-      privateKey: bytesToBase64(privateKey),
+      // REMOVED: privateKey - never expose in API to prevent leakage
       username,
       createdAt,
     };
+  }
+
+  /**
+   * Get private key bytes for internal cryptographic operations
+   * SECURITY: Only for internal use by SDK methods
+   * @returns {Uint8Array|null} Private key bytes or null if locked
+   * @private
+   */
+  getPrivateKeyBytes() {
+    return this.unlockedIdentity?.privateKey ?? null;
+  }
+
+  /**
+   * Get public key bytes for cryptographic operations
+   * @returns {Uint8Array|null} Public key bytes or null if locked
+   */
+  getPublicKeyBytes() {
+    return this.unlockedIdentity?.publicKey ?? null;
   }
 
   /**
@@ -70,10 +93,44 @@ export class AccountService {
   }
 
   /**
+   * Validate password strength
+   * @param {string} password
+   * @returns {{valid: boolean, errors: string[]}}
+   */
+  validatePasswordStrength(password) {
+    const errors = [];
+
+    if (password.length < 12) {
+      errors.push('Password must be at least 12 characters long');
+    }
+
+    if (!/[a-z]/.test(password)) {
+      errors.push('Password must contain at least one lowercase letter');
+    }
+
+    if (!/[A-Z]/.test(password)) {
+      errors.push('Password must contain at least one uppercase letter');
+    }
+
+    if (!/[0-9]/.test(password)) {
+      errors.push('Password must contain at least one number');
+    }
+
+    if (!/[^a-zA-Z0-9]/.test(password)) {
+      errors.push('Password must contain at least one special character');
+    }
+
+    return {
+      valid: errors.length === 0,
+      errors,
+    };
+  }
+
+  /**
    * Create a new DID-based account
    * @param {Object} params
    * @param {string} params.username - Unique username
-   * @param {string} params.password - Password for encryption (min 8 chars recommended)
+   * @param {string} params.password - Password for encryption (min 12 chars with complexity)
    * @returns {Promise<Object>} Unlocked identity
    * @throws {Error} If username exists or validation fails
    */
@@ -84,8 +141,12 @@ export class AccountService {
       throw new Error('Username and password are required');
     }
 
-    if (password.length < 8) {
-      throw new Error('Password must be at least 8 characters');
+    // Enhanced password validation
+    const passwordValidation = this.validatePasswordStrength(password);
+    if (!passwordValidation.valid) {
+      throw new Error(
+        'Password does not meet security requirements:\n' + passwordValidation.errors.join('\n')
+      );
     }
 
     // Check if username already exists
@@ -140,11 +201,12 @@ export class AccountService {
 
   /**
    * Unlock an existing account with password
+   * Includes brute force protection with exponential backoff
    * @param {Object} params
    * @param {string} params.username - Account username
    * @param {string} params.password - Account password
    * @returns {Promise<Object>} Unlocked identity
-   * @throws {Error} If account not found or password incorrect
+   * @throws {Error} If account not found, password incorrect, or account locked
    */
   async unlock({ username, password }) {
     const normalized = username?.trim();
@@ -153,10 +215,20 @@ export class AccountService {
       throw new Error('Username and password are required');
     }
 
+    // Check for brute force lockout
+    const lockStatus = await checkLoginLockout(normalized);
+    if (lockStatus.locked) {
+      throw new Error(
+        `Too many failed login attempts. Please wait ${lockStatus.waitSeconds} seconds before trying again.`
+      );
+    }
+
     // Get account from database
     const account = await getAccount(normalized);
     if (!account) {
-      throw new Error('Account not found');
+      // Record failed attempt even for non-existent accounts to prevent username enumeration timing attacks
+      await recordFailedLogin(normalized);
+      throw new Error('Invalid username or password');
     }
 
     // Decrypt private key
@@ -172,6 +244,17 @@ export class AccountService {
         password
       );
     } catch (error) {
+      // Record failed login attempt
+      await recordFailedLogin(normalized);
+
+      // Check if now locked
+      const newLockStatus = await checkLoginLockout(normalized);
+      if (newLockStatus.locked) {
+        throw new Error(
+          `Incorrect password. Too many failed attempts - account locked for ${newLockStatus.waitSeconds} seconds.`
+        );
+      }
+
       throw new Error('Incorrect password');
     }
 
@@ -187,6 +270,9 @@ export class AccountService {
     };
 
     this.currentAccountRecord = account;
+
+    // Clear failed login attempts after successful unlock
+    await clearLoginAttempts(normalized);
 
     // Update backup
     await saveBackup({

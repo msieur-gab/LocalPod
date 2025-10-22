@@ -23,6 +23,7 @@ export class PlatformDatabase extends Dexie {
       collaborators: '&id, publicKey, addedAt',
       profiles: '&publicKey, updatedAt',
       backups: '&publicKey, updatedAt',
+      loginAttempts: '&username, lastAttempt', // Track failed login attempts
     });
 
     // Type definitions for tables
@@ -30,6 +31,7 @@ export class PlatformDatabase extends Dexie {
     this.collaborators = this.table('collaborators');
     this.profiles = this.table('profiles');
     this.backups = this.table('backups');
+    this.loginAttempts = this.table('loginAttempts');
   }
 }
 
@@ -294,4 +296,79 @@ export const getBackup = async (publicKey) => {
 export const deleteBackup = async (publicKey) => {
   const db = getPlatformDatabase();
   await db.backups.delete(publicKey);
+};
+
+// ========== Login Attempt Tracking (Brute Force Protection) ==========
+
+/**
+ * Get login attempt record for username
+ * @param {string} username
+ * @returns {Promise<Object|undefined>}
+ */
+export const getLoginAttempts = async (username) => {
+  const db = getPlatformDatabase();
+  return db.loginAttempts.get(username);
+};
+
+/**
+ * Record failed login attempt
+ * @param {string} username
+ * @returns {Promise<void>}
+ */
+export const recordFailedLogin = async (username) => {
+  const db = getPlatformDatabase();
+  const existing = await getLoginAttempts(username);
+
+  await db.loginAttempts.put({
+    username,
+    failedAttempts: (existing?.failedAttempts ?? 0) + 1,
+    lastAttempt: new Date().toISOString(),
+    lockoutUntil: null, // Can be set for account lockout
+  });
+};
+
+/**
+ * Clear login attempts after successful login
+ * @param {string} username
+ * @returns {Promise<void>}
+ */
+export const clearLoginAttempts = async (username) => {
+  const db = getPlatformDatabase();
+  await db.loginAttempts.delete(username);
+};
+
+/**
+ * Check if account is locked due to too many failed attempts
+ * @param {string} username
+ * @returns {Promise<{locked: boolean, waitSeconds: number}>}
+ */
+export const checkLoginLockout = async (username) => {
+  const record = await getLoginAttempts(username);
+  if (!record) return { locked: false, waitSeconds: 0 };
+
+  const attempts = record.failedAttempts ?? 0;
+  if (attempts === 0) return { locked: false, waitSeconds: 0 };
+
+  // Exponential backoff: wait 2^(attempts-3) seconds after 3 failed attempts
+  // 3 attempts: 1 second
+  // 4 attempts: 2 seconds
+  // 5 attempts: 4 seconds
+  // 6 attempts: 8 seconds
+  // 7 attempts: 16 seconds
+  // 8+ attempts: 32 seconds
+  if (attempts < 3) return { locked: false, waitSeconds: 0 };
+
+  const waitSeconds = Math.min(Math.pow(2, attempts - 3), 32);
+  const lastAttemptTime = new Date(record.lastAttempt).getTime();
+  const now = Date.now();
+  const elapsed = (now - lastAttemptTime) / 1000;
+
+  if (elapsed < waitSeconds) {
+    return {
+      locked: true,
+      waitSeconds: Math.ceil(waitSeconds - elapsed),
+    };
+  }
+
+  return { locked: false, waitSeconds: 0 };
 };

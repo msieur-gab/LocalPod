@@ -28,6 +28,11 @@ export {
   deriveEncryptionKey,
   encryptForRecipient,
   decryptFromSender,
+  // NEW: Authenticated encryption with signing
+  signMessage,
+  verifySignature,
+  encryptAndSignForRecipient,
+  decryptAndVerifyFromSender,
   PBKDF2_ITERATIONS,
 } from './src/core/crypto.js';
 

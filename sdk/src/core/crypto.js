@@ -4,8 +4,8 @@
  * @module sdk/core/crypto
  */
 
-import { getSharedSecret } from '@noble/secp256k1';
-import { stringToBytes, bytesToString } from '../utils/encoding.js';
+import { getSharedSecret, sign, verify } from '@noble/secp256k1';
+import { stringToBytes, bytesToString, concatBytes } from '../utils/encoding.js';
 
 // PBKDF2 configuration (OWASP 2023 recommendations)
 export const PBKDF2_ITERATIONS = 600_000; // Increased from 210k
@@ -145,22 +145,43 @@ export const decryptPrivateKey = async (encrypted, password) => {
 };
 
 /**
- * Derive shared encryption key from ECDH shared secret
- * Uses secp256k1 curve for key agreement, SHA-256 for KDF
+ * Derive shared encryption key from ECDH shared secret using HKDF
+ * Uses secp256k1 curve for key agreement, HKDF-SHA-256 for proper key derivation
  * @param {Uint8Array} privateKeyBytes - Local private key
  * @param {Uint8Array} publicKeyBytes - Remote public key (compressed, 33 bytes)
+ * @param {Uint8Array} [salt] - Optional salt for HKDF (uses zero salt if not provided)
+ * @param {Uint8Array} [info] - Optional context/info for HKDF
  * @returns {Promise<CryptoKey>}
  */
-export const deriveEncryptionKey = async (privateKeyBytes, publicKeyBytes) => {
+export const deriveEncryptionKey = async (
+  privateKeyBytes,
+  publicKeyBytes,
+  salt = new Uint8Array(32),
+  info = stringToBytes('LocalPod-ECDH-AES-GCM')
+) => {
   const sharedSecret = getSharedSecret(privateKeyBytes, publicKeyBytes, true);
 
   // getSharedSecret returns 33 bytes with first byte representing parity; drop it
   const keyMaterial = sharedSecret.slice(1);
 
-  // Hash to get consistent 256-bit key
-  const hashed = await crypto.subtle.digest('SHA-256', keyMaterial);
+  // Import shared secret as key material for HKDF
+  const importedKey = await crypto.subtle.importKey('raw', keyMaterial, 'HKDF', false, [
+    'deriveKey',
+  ]);
 
-  return crypto.subtle.importKey('raw', hashed, 'AES-GCM', false, ['encrypt', 'decrypt']);
+  // Use HKDF to derive proper encryption key (more secure than plain SHA-256)
+  return crypto.subtle.deriveKey(
+    {
+      name: 'HKDF',
+      hash: 'SHA-256',
+      salt,
+      info,
+    },
+    importedKey,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt']
+  );
 };
 
 /**
@@ -187,5 +208,90 @@ export const encryptForRecipient = async (text, recipientPublicKey, senderPrivat
 export const decryptFromSender = async (ciphertext, iv, senderPublicKey, recipientPrivateKey) => {
   const decryptionKey = await deriveEncryptionKey(recipientPrivateKey, senderPublicKey);
   const plainBytes = await decryptWithKey(decryptionKey, ciphertext, iv);
+  return bytesToString(plainBytes);
+};
+
+/**
+ * Sign a message with private key (for authenticated encryption)
+ * @param {Uint8Array} messageBytes - Message to sign
+ * @param {Uint8Array} privateKeyBytes - Private key for signing
+ * @returns {Promise<Uint8Array>} Signature (64 bytes)
+ */
+export const signMessage = async (messageBytes, privateKeyBytes) => {
+  // Hash the message first (secp256k1 requires 32-byte hash)
+  const messageHash = await crypto.subtle.digest('SHA-256', messageBytes);
+  const signature = await sign(new Uint8Array(messageHash), privateKeyBytes);
+  return signature;
+};
+
+/**
+ * Verify a message signature
+ * @param {Uint8Array} signature - Signature to verify
+ * @param {Uint8Array} messageBytes - Original message
+ * @param {Uint8Array} publicKeyBytes - Public key of signer
+ * @returns {Promise<boolean>} True if signature is valid
+ */
+export const verifySignature = async (signature, messageBytes, publicKeyBytes) => {
+  try {
+    const messageHash = await crypto.subtle.digest('SHA-256', messageBytes);
+    return await verify(signature, new Uint8Array(messageHash), publicKeyBytes);
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Encrypt and sign message for recipient (authenticated encryption)
+ * Provides both confidentiality (ECDH+AES) and authenticity (signature)
+ * @param {string} text - Text to encrypt
+ * @param {Uint8Array} recipientPublicKey - Recipient's public key
+ * @param {Uint8Array} senderPrivateKey - Sender's private key
+ * @returns {Promise<{ciphertext: Uint8Array, iv: Uint8Array, signature: Uint8Array}>}
+ */
+export const encryptAndSignForRecipient = async (text, recipientPublicKey, senderPrivateKey) => {
+  const messageBytes = stringToBytes(text);
+
+  // First, sign the plaintext message
+  const signature = await signMessage(messageBytes, senderPrivateKey);
+
+  // Then encrypt the message
+  const encryptionKey = await deriveEncryptionKey(senderPrivateKey, recipientPublicKey);
+  const { ciphertext, iv } = await encryptWithKey(encryptionKey, messageBytes);
+
+  return {
+    ciphertext,
+    iv,
+    signature,
+  };
+};
+
+/**
+ * Decrypt and verify message from sender (authenticated decryption)
+ * Verifies both authenticity (signature) and decrypts
+ * @param {Uint8Array} ciphertext - Encrypted data
+ * @param {Uint8Array} iv - Initialization vector
+ * @param {Uint8Array} signature - Message signature
+ * @param {Uint8Array} senderPublicKey - Sender's public key
+ * @param {Uint8Array} recipientPrivateKey - Recipient's private key
+ * @returns {Promise<string>} Decrypted text
+ * @throws {Error} If signature verification fails
+ */
+export const decryptAndVerifyFromSender = async (
+  ciphertext,
+  iv,
+  signature,
+  senderPublicKey,
+  recipientPrivateKey
+) => {
+  // First, decrypt the message
+  const decryptionKey = await deriveEncryptionKey(recipientPrivateKey, senderPublicKey);
+  const plainBytes = await decryptWithKey(decryptionKey, ciphertext, iv);
+
+  // Then verify the signature on the plaintext
+  const isValid = await verifySignature(signature, plainBytes, senderPublicKey);
+  if (!isValid) {
+    throw new Error('Signature verification failed: message may be tampered or from wrong sender');
+  }
+
   return bytesToString(plainBytes);
 };
