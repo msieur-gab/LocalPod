@@ -454,7 +454,18 @@ async function renderCollaborators() {
   const container = document.getElementById('collaborators-list');
 
   try {
-    const collaborators = await platform.listCollaboratorsWithProfiles();
+    // Sync profiles from remote storage if available to get latest updates
+    if (hasRemoteStorage) {
+      console.log('🔄 Syncing collaborator profiles from remote storage...');
+    }
+
+    const collaborators = await platform.listCollaboratorsWithProfiles({
+      syncRemote: hasRemoteStorage
+    });
+
+    if (hasRemoteStorage) {
+      console.log(`✅ Loaded ${collaborators.length} collaborators with synced profiles`);
+    }
 
     if (collaborators.length === 0) {
       container.innerHTML = '<p class="empty-state">No collaborators yet. Add your first collaborator to get started!</p>';
