@@ -1,3 +1,10 @@
-config.js
-.DS_Store
+# Dependencies
 node_modules
+
+# OS Files
+.DS_Store
+
+# NOTE: config.js is now committed for GitHub Pages demo
+# The default config.js has empty credentials (local-only mode)
+# If you add real credentials locally, be careful not to commit them!
+# Add config.js back to .gitignore if you're using real credentials
