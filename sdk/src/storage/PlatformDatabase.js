@@ -294,13 +294,27 @@ export const saveProfile = async (profile) => {
   }
 
   const db = getPlatformDatabase();
+
+  // Load existing profile to merge with (preserves fields not provided)
+  const existing = await db.profiles.get(profile.publicKey);
+
   const record = {
     publicKey: profile.publicKey,
-    encryptionPublicKey: profile.encryptionPublicKey ?? null,
-    username: profile.username ?? null,
-    displayName: profile.displayName ?? null,
-    avatar: profile.avatar ?? null,
-    bio: profile.bio ?? null,
+    encryptionPublicKey: profile.encryptionPublicKey !== undefined
+      ? profile.encryptionPublicKey
+      : existing?.encryptionPublicKey ?? null,
+    username: profile.username !== undefined
+      ? profile.username
+      : existing?.username ?? null,
+    displayName: profile.displayName !== undefined
+      ? profile.displayName
+      : existing?.displayName ?? null,
+    avatar: profile.avatar !== undefined
+      ? profile.avatar
+      : existing?.avatar ?? null,
+    bio: profile.bio !== undefined
+      ? profile.bio
+      : existing?.bio ?? null,
     updatedAt: profile.updatedAt ?? new Date().toISOString(),
   };
 
