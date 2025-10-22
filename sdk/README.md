@@ -126,196 +126,164 @@ console.log(profile.displayName); // "Alice Wonderland"
 ### 5. Add Collaborators
 
 ```javascript
-// Add Bob as a collaborator
 await platform.addCollaborator({
-  publicKey: 'z8bobPublicKey...',
+  publicKey: 'z8bob...',
+  encryptionPublicKey: 'encryptionKey...',
   name: 'Bob'
 });
 
-// List all collaborators
 const collaborators = await platform.listCollaborators();
-console.log(collaborators);
-// [{ id: 'z8bob...', publicKey: 'z8bob...', name: 'Bob', addedAt: '...' }]
+console.log(collaborators.length);
 ```
+
+### 6. Share Documents
+
+```javascript
+const docId = 'doc-123';
+
+await platform.saveSharedKey(docId, {
+  collaboratorPublicKey: 'z8bob...',
+  encryptedKey: 'MIIBIjANBg...'
+});
+```
+
+## SDK Modules
+
+| Module | Description |
+|--------|-------------|
+| `IdentityPlatform` | Main entry point with account, profile, collaborator APIs |
+| `AccountService` | Handles DID creation, backups, passkey registration |
+| `ProfileService` | Manages profile caching and remote sync |
+| `CollaboratorService` | Collaborator registry, capability grants, backups |
+| `PlatformDatabase` | IndexedDB wrapper via Dexie |
+| `crypto` | Encryption utilities (Ed25519, X25519, AES-GCM) |
+| `encoding` | Base58/Base64 utilities |
+
+## Key Features
+
+- DID account creation (`createAccount`, `unlock`)
+- Passkey support (WebAuthn) for passwordless login
+- Encrypted backups with remote sync support
+- Collaborator registry with capability grants
+- Local-first architecture with optional remote syncing
+- Modular design (import what you need)
 
 ## API Reference
 
 ### IdentityPlatform
 
-Main SDK class that orchestrates all services.
-
-#### Constructor
-
 ```javascript
-new IdentityPlatform(options)
+const platform = new IdentityPlatform({ remoteStorage });
+await platform.init();
+
+await platform.createAccount({ username, password });
+await platform.unlock({ username, password });
+platform.lock();
+
+await platform.saveProfile(profile, { syncRemote: true });
+const profile = await platform.getProfile(publicKey);
+await platform.updateProfile(publicKey, updates);
+
+await platform.addCollaborator({ publicKey, encryptionPublicKey, name });
+await platform.removeCollaborator(collaboratorId);
+const collaborators = await platform.listCollaborators();
 ```
 
-**Options:**
-- `remoteStorage` (Object, optional): Remote storage provider (e.g., Filebase S3 client)
-
-#### Methods
-
-##### Account Management
+### AccountService
 
 ```javascript
-await platform.listAccounts()
-await platform.createAccount({ username, password })
-await platform.unlock({ username, password })
-platform.lock()
-platform.isUnlocked()
-platform.getIdentity()
-await platform.deleteAccount(username)
-await platform.importAccountFromBackup({ username, password, backup })
+const accountService = new AccountService();
+
+await accountService.createAccount({ username, password });
+await accountService.unlock({ username, password });
+accountService.lock();
+
+const identity = accountService.getUnlockedIdentity();
+const backupPayload = accountService.getBackupPayload();
+
+const passkey = await accountService.registerPasskey({ displayName: 'MacBook Pro' });
+await accountService.removePasskey(passkey.credentialId);
 ```
 
-##### Profile Management
+### ProfileService
 
 ```javascript
-await platform.getProfile(publicKey, options)
-await platform.saveProfile(profile, options)
-await platform.updateProfile(publicKey, updates, options)
-await platform.deleteProfile(publicKey)
-await platform.listProfiles()
-await platform.ensureProfiles(publicKeys)
+const profileService = new ProfileService(remoteStorage);
+
+await profileService.saveProfile({ publicKey, displayName, avatar });
+const profile = await profileService.getProfile(publicKey, {
+  useCache: true,
+  fetchRemote: true
+});
+await profileService.updateProfile(publicKey, { displayName: 'New Name' });
 ```
 
-##### Collaborator Management
+### CollaboratorService
 
 ```javascript
-await platform.listCollaborators()
-await platform.getCollaborator(id)
-await platform.addCollaborator(collaborator, options)
-await platform.removeCollaborator(id, options)
-await platform.listCollaboratorsWithProfiles()
-await platform.searchCollaborators(query)
-await platform.isTrustedCollaborator(publicKey)
-```
+const collaboratorService = new CollaboratorService(profileService, accountService);
 
-##### Event System
-
-```javascript
-// Subscribe to events
-const unsubscribe = platform.on('account-unlocked', (identity) => {
-  console.log('Unlocked:', identity.username);
+await collaboratorService.addCollaborator({
+  publicKey: 'z8bob...',
+  encryptionPublicKey: 'encryptionKey...',
+  name: 'Bob'
 });
 
-// Available events:
-// - 'initialized'
-// - 'account-created'
-// - 'account-unlocked'
-// - 'account-locked'
-// - 'account-deleted'
-// - 'account-imported'
-// - 'profile-updated'
-// - 'profile-deleted'
-// - 'collaborator-added'
-// - 'collaborator-removed'
-
-// Unsubscribe
-unsubscribe();
+const collaborators = await collaboratorService.listCollaborators();
+await collaboratorService.syncCollaboratorProfiles();
 ```
 
-##### Utilities
+### Remote Storage Interface
+
+Implement your own remote storage by providing an object with these methods:
 
 ```javascript
-await platform.getStats()
-platform.clearCaches()
-platform.removeAllListeners()
+const remoteStorage = {
+  async upsertProfile(publicKey, profile) {},
+  async loadProfile(publicKey) {},
+  async saveIdentityBackup(publicKey, backup) {},
+  async loadIdentityBackup(publicKey) {},
+  async saveCollaboratorBackup(publicKey, payload) {},
+  async loadCollaboratorBackup(publicKey) {},
+};
+
+const platform = new IdentityPlatform({ remoteStorage });
 ```
 
-### Individual Services
-
-You can also use services directly:
+## Configuration
 
 ```javascript
-import { AccountService, ProfileService, CollaboratorService } from '@localPod/identity-platform';
+import { SimpleStorage } from '../storage.js';
+import { config } from '../config.js';
 
-const accountService = new AccountService();
-const profileService = new ProfileService(remoteStorage);
-const collaboratorService = new CollaboratorService(profileService);
+const storage = new SimpleStorage(config.filebase);
+
+const platform = new IdentityPlatform({
+  remoteStorage: storage,
+});
 ```
 
-### Core Utilities
-
-#### DID Operations
+## Sample Flow
 
 ```javascript
-import { didFromPublicKey, publicKeyFromDid, generateKeyPair } from '@localPod/identity-platform';
+const platform = new IdentityPlatform({ remoteStorage });
 
-// Generate key pair
-const { privateKey, publicKey } = generateKeyPair();
+await platform.init();
 
-// Create DID
-const did = didFromPublicKey(publicKey);
-// "did:key:z8mwaSF..."
+const account = await platform.createAccount({ username: 'alice', password: 'securePassword123!' });
 
-// Extract public key from DID
-const extractedKey = publicKeyFromDid(did);
+await platform.saveProfile({
+  publicKey: account.publicKey,
+  displayName: 'Alice',
+  avatar: 'https://avatars.dicebear.com/api/identicon/alice.svg',
+});
+
+await platform.addCollaborator({
+  publicKey: 'z8bob...',
+  encryptionPublicKey: 'encryptionKey...',
+  name: 'Bob',
+});
 ```
-
-#### Encryption
-
-```javascript
-import {
-  generateDocumentKey,
-  encryptWithKey,
-  decryptWithKey,
-  encryptForRecipient,
-  decryptFromSender
-} from '@localPod/identity-platform';
-
-// Generate document encryption key
-const docKey = generateDocumentKey(); // 256-bit AES key
-
-// Encrypt for a recipient (ECDH)
-const { ciphertext, iv } = await encryptForRecipient(
-  'Secret message',
-  recipientPublicKey,
-  senderPrivateKey
-);
-
-// Decrypt from sender
-const plaintext = await decryptFromSender(
-  ciphertext,
-  iv,
-  senderPublicKey,
-  recipientPrivateKey
-);
-```
-
-#### Encoding
-
-```javascript
-import { bytesToBase58, base58ToBytes, bytesToBase64, base64ToBytes } from '@localPod/identity-platform';
-
-const bytes = new Uint8Array([1, 2, 3, 4]);
-const base58 = bytesToBase58(bytes);
-const base64 = bytesToBase64(bytes);
-```
-
-## Database Schema
-
-The SDK creates an IndexedDB database named `identityPlatform` with the following tables:
-
-### `accounts`
-- Primary key: `username`
-- Indexes: `publicKey`, `createdAt`
-- Fields: `username`, `did`, `publicKey`, `encryptedPrivateKey`, `encryptionIv`, `salt`, `iterations`, `createdAt`, `updatedAt`
-
-### `collaborators`
-- Primary key: `id`
-- Indexes: `publicKey`, `addedAt`
-- Fields: `id`, `publicKey`, `name`, `addedAt`
-
-### `profiles`
-- Primary key: `publicKey`
-- Indexes: `updatedAt`
-- Fields: `publicKey`, `displayName`, `avatar`, `updatedAt`
-
-### `backups`
-- Primary key: `publicKey`
-- Indexes: `updatedAt`
-- Fields: `publicKey`, `cipher`, `iv`, `salt`, `iterations`, `updatedAt`
 
 ## Security Best Practices
 
@@ -431,14 +399,7 @@ npm test
 
 ## Roadmap
 
-- [ ] Unit tests for all services
-- [ ] Lit web components (account-gate, identity-card, etc.)
-- [ ] Remote storage sync service
-- [ ] TypeScript type definitions
-- [ ] Conflict resolution for profiles
-- [ ] Rate limiting for authentication
-- [ ] Account recovery flow
-- [ ] Multi-device sync
+See `TODO.md` in the repository root for the active task list.
 
 ## License
 

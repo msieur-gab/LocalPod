@@ -473,6 +473,10 @@ export class SimpleStorage {
           iv: payload.private.iv ?? null,
           salt: payload.private.salt ?? null,
           iterations: payload.private.iterations ?? 600000,
+          encryptionCipher: payload.private.encryptionCipher ?? null,
+          encryptionIv: payload.private.encryptionIv ?? null,
+          encryptionSalt: payload.private.encryptionSalt ?? null,
+          encryptionIterations: payload.private.encryptionIterations ?? 600000,
           collaborators: payload.private.collaborators
             ? {
                 cipher: payload.private.collaborators.cipher ?? null,
@@ -529,6 +533,13 @@ export class SimpleStorage {
             iv: result.private.iv,
             salt: result.private.salt,
             iterations: typeof result.private.iterations === 'number' ? result.private.iterations : parseInt(result.private.iterations, 10) || 600000,
+            encryptionCipher: result.private.encryptionCipher ?? null,
+            encryptionIv: result.private.encryptionIv ?? null,
+            encryptionSalt: result.private.encryptionSalt ?? null,
+            encryptionIterations:
+              typeof result.private.encryptionIterations === 'number'
+                ? result.private.encryptionIterations
+                : parseInt(result.private.encryptionIterations, 10) || 600000,
             collaborators: result.private.collaborators
               ? {
                   cipher: result.private.collaborators.cipher ?? null,
@@ -652,6 +663,21 @@ export class SimpleStorage {
         iv: payload.encryptionIv ?? payload.iv,
         salt: payload.salt,
         iterations: payload.iterations ?? 600000,
+        encryptionCipher:
+          payload.encryptedEncryptionKey ??
+          payload.encryptionCipher ??
+          existing?.private?.encryptionCipher ??
+          null,
+        encryptionIv:
+          payload.encryptionKeyIv ??
+          payload.encryptionIv ??
+          existing?.private?.encryptionIv ??
+          null,
+        encryptionSalt: payload.encryptionSalt ?? existing?.private?.encryptionSalt ?? null,
+        encryptionIterations:
+          payload.encryptionIterations ??
+          existing?.private?.encryptionIterations ??
+          600000,
         collaborators: existing?.private?.collaborators ?? null,
       },
     };
@@ -673,6 +699,10 @@ export class SimpleStorage {
       encryptionIv: userFile.private.iv,
       salt: userFile.private.salt,
       iterations: userFile.private.iterations,
+      encryptedEncryptionKey: userFile.private.encryptionCipher ?? null,
+      encryptionKeyIv: userFile.private.encryptionIv ?? null,
+      encryptionSalt: userFile.private.encryptionSalt ?? null,
+      encryptionIterations: userFile.private.encryptionIterations ?? 600000,
       createdAt: null, // Not stored in new format
       updatedAt: userFile.public.updatedAt,
     };

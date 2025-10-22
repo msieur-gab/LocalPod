@@ -359,11 +359,16 @@ async function handleImportAccount(event) {
 
     // Import account from backup
     const backup = {
-      publicKey: publicKey,
+      publicKey,
       encryptedPrivateKey: userFile.private.cipher,
       encryptionIv: userFile.private.iv,
       salt: userFile.private.salt,
       iterations: userFile.private.iterations,
+      encryptedEncryptionKey: userFile.private.encryptionCipher ?? null,
+      encryptionKeyIv: userFile.private.encryptionIv ?? null,
+      encryptionSalt: userFile.private.encryptionSalt ?? null,
+      encryptionIterations: userFile.private.encryptionIterations ?? 600000,
+      encryptionPublicKey: userFile.encryptionPublicKey ?? null,
     };
 
     currentIdentity = await platform.importAccountFromBackup({
