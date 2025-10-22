@@ -488,6 +488,7 @@ export class SimpleStorage {
       {
         version: payload.version ?? 1,
         publicKey,
+        encryptionPublicKey: payload.encryptionPublicKey ?? null,
         public: {
           username: payload.public?.username ?? null,
           displayName: payload.public?.displayName ?? null,
@@ -514,6 +515,7 @@ export class SimpleStorage {
     return {
       version: result.version ?? 1,
       publicKey,
+      encryptionPublicKey: result.encryptionPublicKey ?? null,
       public: {
         username: result.public?.username ?? null,
         displayName: result.public?.displayName ?? null,
@@ -555,6 +557,7 @@ export class SimpleStorage {
     // Update only public section
     const payload = {
       version: existing?.version ?? 1,
+      encryptionPublicKey: profile.encryptionPublicKey ?? existing?.encryptionPublicKey ?? null,
       public: {
         username: profile.username ?? existing?.public?.username ?? null,
         displayName: profile.displayName ?? existing?.public?.displayName ?? null,
@@ -577,6 +580,7 @@ export class SimpleStorage {
     return {
       version: userFile.version,
       publicKey: userFile.publicKey,
+      encryptionPublicKey: userFile.encryptionPublicKey,
       username: userFile.public.username,
       displayName: userFile.public.displayName,
       avatar: userFile.public.avatar,
@@ -595,6 +599,7 @@ export class SimpleStorage {
 
     const userPayload = {
       version: existing?.version ?? 1,
+      encryptionPublicKey: payload.encryptionPublicKey ?? existing?.encryptionPublicKey ?? null,
       public: {
         username: username,
         displayName: existing?.public?.displayName ?? username,
@@ -634,6 +639,7 @@ export class SimpleStorage {
 
     const userPayload = {
       version: existing?.version ?? 1,
+      encryptionPublicKey: payload.encryptionPublicKey ?? existing?.encryptionPublicKey ?? null,
       public: existing?.public ?? {
         username: null,
         displayName: null,
@@ -681,6 +687,7 @@ export class SimpleStorage {
 
     const userPayload = {
       version: existing?.version ?? 1,
+      encryptionPublicKey: existing?.encryptionPublicKey ?? null,
       public: existing?.public ?? {
         username: null,
         displayName: null,

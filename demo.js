@@ -378,6 +378,7 @@ async function handleImportAccount(event) {
     if (userFile.public) {
       await platform.saveProfile({
         publicKey: currentIdentity.publicKey,
+        encryptionPublicKey: currentIdentity.encryptionPublicKey,
         username: userFile.public.username || username,
         displayName: userFile.public.displayName || username,
         avatar: userFile.public.avatar,
@@ -486,6 +487,7 @@ async function loadCurrentProfile() {
     // Create default profile and sync to remote if available
     currentProfile = await platform.saveProfile({
       publicKey: currentIdentity.publicKey,
+      encryptionPublicKey: currentIdentity.encryptionPublicKey,
       username: currentIdentity.username, // Include username in profile
       displayName: currentIdentity.username,
       avatar: null,

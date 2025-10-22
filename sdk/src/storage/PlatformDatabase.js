@@ -280,6 +280,7 @@ export const removeCollaborator = async (id) => {
  * Save or update profile
  * @param {Object} profile
  * @param {string} profile.publicKey - Base58-encoded public key (primary key)
+ * @param {string} [profile.encryptionPublicKey] - Base58-encoded X25519 encryption public key
  * @param {string} [profile.username] - Username (from unified file)
  * @param {string} [profile.displayName] - Human-readable name
  * @param {string} [profile.avatar] - Avatar URL or data URI
@@ -295,6 +296,7 @@ export const saveProfile = async (profile) => {
   const db = getPlatformDatabase();
   const record = {
     publicKey: profile.publicKey,
+    encryptionPublicKey: profile.encryptionPublicKey ?? null,
     username: profile.username ?? null,
     displayName: profile.displayName ?? null,
     avatar: profile.avatar ?? null,

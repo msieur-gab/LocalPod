@@ -291,6 +291,7 @@ export class CollaboratorService {
         if (!remoteProfile && collaborator.name) {
           await this.profileService.saveProfile({
             publicKey: signingPublicKey,
+            encryptionPublicKey: collaborator.encryptionPublicKey,
             displayName: collaborator.name,
           });
         }
