@@ -10,6 +10,7 @@ import {
   getCollaboratorByDid,
   addCollaborator,
   removeCollaborator,
+  getPlatformDatabase,
   saveCapabilityGrant,
   listCapabilityGrantsByGranter,
   listCapabilityGrantsBySubject,
@@ -19,13 +20,23 @@ import {
   getCapabilityVersion,
 } from '../storage/PlatformDatabase.js';
 import { didFromPublicKey, publicKeyFromDid, isValidPublicKey } from '../core/DID.js';
-import { base58ToBytes, bytesToBase58 } from '../utils/encoding.js';
+import {
+  base58ToBytes,
+  bytesToBase58,
+  bytesToBase64,
+  base64ToBytes,
+  stringToBytes,
+  bytesToString,
+} from '../utils/encoding.js';
 import {
   createCapabilityGrant,
   verifyCapabilityGrant,
   unwrapCapabilityKey,
   buildGrantRecord,
 } from '../core/CapabilityGrant.js';
+import { encryptWithKey, decryptWithKey, importAesKey } from '../core/crypto.js';
+
+const COLLABORATOR_BACKUP_VERSION = 1;
 
 /**
  * Collaborator Service
@@ -35,6 +46,137 @@ export class CollaboratorService {
   constructor(profileService = null, accountService = null) {
     this.profileService = profileService;
     this.accountService = accountService;
+  }
+
+  get remoteStorage() {
+    if (!this.profileService) return null;
+    return this.profileService.remoteStorage ?? null;
+  }
+
+  async deriveCollaboratorBackupKey() {
+    if (!this.accountService) return null;
+
+    const privateKeyBytes = this.accountService.getEncryptionPrivateKeyBytes();
+    if (!privateKeyBytes) return null;
+
+    const digest = await crypto.subtle.digest('SHA-256', privateKeyBytes);
+    return importAesKey(new Uint8Array(digest));
+  }
+
+  async buildCollaboratorSnapshot() {
+    const collaborators = await listCollaborators();
+
+    return collaborators.map((collaborator) => ({
+      id: collaborator.id,
+      publicKey: collaborator.publicKey,
+      encryptionPublicKey: collaborator.encryptionPublicKey ?? null,
+      did: collaborator.did ?? null,
+      name: collaborator.name ?? null,
+      metadata: collaborator.metadata ?? null,
+      addedAt: collaborator.addedAt ?? null,
+    }));
+  }
+
+  async buildEncryptedCollaboratorBackup() {
+    const key = await this.deriveCollaboratorBackupKey();
+    if (!key) return null;
+
+    const snapshot = await this.buildCollaboratorSnapshot();
+    const payload = {
+      version: COLLABORATOR_BACKUP_VERSION,
+      updatedAt: new Date().toISOString(),
+      collaborators: snapshot,
+    };
+
+    const plainBytes = stringToBytes(JSON.stringify(payload));
+    const { ciphertext, iv } = await encryptWithKey(key, plainBytes);
+
+    return {
+      cipher: bytesToBase64(ciphertext),
+      iv: bytesToBase64(iv),
+      version: COLLABORATOR_BACKUP_VERSION,
+      updatedAt: payload.updatedAt,
+    };
+  }
+
+  async persistCollaboratorsToRemote() {
+    const remoteStorage = this.remoteStorage;
+    if (!remoteStorage || !this.accountService) return;
+
+    const identity = this.accountService.getUnlockedIdentity();
+    if (!identity?.publicKey) return;
+
+    try {
+      const backup = await this.buildEncryptedCollaboratorBackup();
+      if (!backup) return;
+
+      await remoteStorage.saveCollaboratorBackup(identity.publicKey, backup);
+    } catch (error) {
+      console.warn('Failed to sync collaborators to remote storage:', error);
+    }
+  }
+
+  async restoreCollaboratorsFromEncryptedBackup(encrypted, { replace = false } = {}) {
+    if (!encrypted?.cipher || !encrypted?.iv) return null;
+
+    const key = await this.deriveCollaboratorBackupKey();
+    if (!key) {
+      console.warn('Cannot restore collaborators: missing encryption key material');
+      return null;
+    }
+
+    try {
+      const cipherBytes = base64ToBytes(encrypted.cipher);
+      const ivBytes = base64ToBytes(encrypted.iv);
+      const plainBytes = await decryptWithKey(key, cipherBytes, ivBytes);
+      const decoded = JSON.parse(bytesToString(plainBytes));
+
+      const entries = Array.isArray(decoded?.collaborators) ? decoded.collaborators : [];
+      const normalized = entries
+        .map((entry) => ({
+          id: entry.id || entry.publicKey,
+          publicKey: entry.publicKey,
+          encryptionPublicKey: entry.encryptionPublicKey ?? null,
+          did: entry.did ?? null,
+          name: entry.name ?? null,
+          metadata: entry.metadata ?? null,
+          addedAt: entry.addedAt ?? new Date().toISOString(),
+        }))
+        .filter((entry) => Boolean(entry.publicKey) && Boolean(entry.id));
+
+      if (normalized.length === 0) {
+        if (replace) {
+          // Clear local collaborators when explicit replace requested
+          const db = getPlatformDatabase();
+          await db.transaction('rw', db.collaborators, async () => {
+            await db.collaborators.clear();
+          });
+        }
+        return [];
+      }
+
+      if (replace) {
+        const db = getPlatformDatabase();
+        await db.transaction('rw', db.collaborators, async () => {
+          await db.collaborators.clear();
+          await db.collaborators.bulkPut(
+            normalized.map((record) => ({
+              ...record,
+              metadata: record.metadata ?? null,
+            }))
+          );
+        });
+      } else {
+        for (const record of normalized) {
+          await addCollaborator(record);
+        }
+      }
+
+      return normalized;
+    } catch (error) {
+      console.warn('Failed to restore collaborators from backup:', error);
+      return null;
+    }
   }
 
   /**
@@ -134,6 +276,8 @@ export class CollaboratorService {
       name: collaborator.name ?? null,
     });
 
+    await this.persistCollaboratorsToRemote();
+
     // Auto-fetch remote profile if enabled
     if (createProfile && this.profileService) {
       try {
@@ -175,6 +319,8 @@ export class CollaboratorService {
     // Remove from database
     const result = await removeCollaborator(id);
 
+    await this.persistCollaboratorsToRemote();
+
     // Optionally delete profile
     if (deleteProfile && this.profileService && collaborator.publicKey) {
       try {
@@ -199,10 +345,14 @@ export class CollaboratorService {
       throw new Error('Collaborator not found');
     }
 
-    return addCollaborator({
+    const result = await addCollaborator({
       ...collaborator,
       name,
     });
+
+    await this.persistCollaboratorsToRemote();
+
+    return result;
   }
 
   /**

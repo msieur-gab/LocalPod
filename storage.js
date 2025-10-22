@@ -467,6 +467,23 @@ export class SimpleStorage {
    * @param {object} payload.private - Encrypted private data (cipher, iv, salt, iterations)
    */
   async saveUnifiedUser(publicKey, payload) {
+    const privateSection = payload.private
+      ? {
+          cipher: payload.private.cipher ?? null,
+          iv: payload.private.iv ?? null,
+          salt: payload.private.salt ?? null,
+          iterations: payload.private.iterations ?? 600000,
+          collaborators: payload.private.collaborators
+            ? {
+                cipher: payload.private.collaborators.cipher ?? null,
+                iv: payload.private.collaborators.iv ?? null,
+                updatedAt: payload.private.collaborators.updatedAt ?? new Date().toISOString(),
+                version: payload.private.collaborators.version ?? 1,
+              }
+            : payload.private.collaborators ?? null,
+        }
+      : null;
+
     const body = JSON.stringify(
       {
         version: payload.version ?? 1,
@@ -478,14 +495,7 @@ export class SimpleStorage {
           bio: payload.public?.bio ?? null,
           updatedAt: payload.public?.updatedAt ?? new Date().toISOString(),
         },
-        private: payload.private
-          ? {
-              cipher: payload.private.cipher,
-              iv: payload.private.iv,
-              salt: payload.private.salt,
-              iterations: payload.private.iterations ?? 600000,
-            }
-          : null,
+        private: privateSection,
       },
       null,
       2,
@@ -517,6 +527,14 @@ export class SimpleStorage {
             iv: result.private.iv,
             salt: result.private.salt,
             iterations: typeof result.private.iterations === 'number' ? result.private.iterations : parseInt(result.private.iterations, 10) || 600000,
+            collaborators: result.private.collaborators
+              ? {
+                  cipher: result.private.collaborators.cipher ?? null,
+                  iv: result.private.collaborators.iv ?? null,
+                  updatedAt: result.private.collaborators.updatedAt ?? null,
+                  version: result.private.collaborators.version ?? 1,
+                }
+              : null,
           }
         : null,
     };
@@ -628,6 +646,7 @@ export class SimpleStorage {
         iv: payload.encryptionIv ?? payload.iv,
         salt: payload.salt,
         iterations: payload.iterations ?? 600000,
+        collaborators: existing?.private?.collaborators ?? null,
       },
     };
 
@@ -650,6 +669,57 @@ export class SimpleStorage {
       iterations: userFile.private.iterations,
       createdAt: null, // Not stored in new format
       updatedAt: userFile.public.updatedAt,
+    };
+  }
+
+  /**
+   * Save encrypted collaborator graph into unified user file.
+   * Payload shape: { cipher, iv, version, updatedAt }
+   */
+  async saveCollaboratorBackup(publicKey, payload) {
+    const existing = await this.loadUnifiedUser(publicKey);
+
+    const userPayload = {
+      version: existing?.version ?? 1,
+      public: existing?.public ?? {
+        username: null,
+        displayName: null,
+        avatar: null,
+        bio: null,
+        updatedAt: new Date().toISOString(),
+      },
+      private: {
+        cipher: existing?.private?.cipher ?? null,
+        iv: existing?.private?.iv ?? null,
+        salt: existing?.private?.salt ?? null,
+        iterations: existing?.private?.iterations ?? 600000,
+        collaborators: payload
+          ? {
+              cipher: payload.cipher ?? null,
+              iv: payload.iv ?? null,
+              version: payload.version ?? 1,
+              updatedAt: payload.updatedAt ?? new Date().toISOString(),
+            }
+          : null,
+      },
+    };
+
+    await this.saveUnifiedUser(publicKey, userPayload);
+  }
+
+  /**
+   * Load encrypted collaborator graph from unified user file.
+   * @param {string} publicKey
+   * @returns {object|null}
+   */
+  async loadCollaboratorBackup(publicKey) {
+    const userFile = await this.loadUnifiedUser(publicKey);
+    if (!userFile?.private?.collaborators) return null;
+    return {
+      version: userFile.private.collaborators.version ?? 1,
+      cipher: userFile.private.collaborators.cipher ?? null,
+      iv: userFile.private.collaborators.iv ?? null,
+      updatedAt: userFile.private.collaborators.updatedAt ?? null,
     };
   }
 }

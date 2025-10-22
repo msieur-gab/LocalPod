@@ -99,6 +99,9 @@ export class IdentityPlatform {
    */
   async unlock({ username, password }) {
     const identity = await this.accountService.unlock({ username, password });
+    if (this.remoteStorage) {
+      await this.syncCollaboratorsFromRemote({ replace: false });
+    }
     this.emit('account-unlocked', identity);
     return identity;
   }
@@ -167,6 +170,9 @@ export class IdentityPlatform {
    */
   async importAccountFromBackup(params) {
     const identity = await this.accountService.importAccountFromBackup(params);
+    if (this.remoteStorage) {
+      await this.syncCollaboratorsFromRemote({ replace: true });
+    }
     this.emit('account-imported', identity);
     return identity;
   }
@@ -276,6 +282,30 @@ export class IdentityPlatform {
     const result = await this.collaboratorService.removeCollaborator(id, options);
     this.emit('collaborator-removed', { id });
     return result;
+  }
+
+  /**
+   * Sync collaborators from remote encrypted backup
+   * @param {Object} [options]
+   * @param {boolean} [options.replace=false] - Replace local state when true
+   * @returns {Promise<Array|null>}
+   */
+  async syncCollaboratorsFromRemote({ replace = false } = {}) {
+    if (!this.remoteStorage) return null;
+
+    const identity = this.accountService.getUnlockedIdentity();
+    if (!identity?.publicKey) return null;
+
+    try {
+      const backup = await this.remoteStorage.loadCollaboratorBackup(identity.publicKey);
+      if (!backup) return null;
+      return this.collaboratorService.restoreCollaboratorsFromEncryptedBackup(backup, {
+        replace,
+      });
+    } catch (error) {
+      console.warn('Failed to sync collaborators from remote storage:', error);
+      return null;
+    }
   }
 
   /**
