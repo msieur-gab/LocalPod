@@ -156,6 +156,7 @@ function setupEventListeners() {
 
   // Main app buttons
   document.getElementById('btn-logout').addEventListener('click', handleLogout);
+  document.getElementById('btn-copy-recovery-key').addEventListener('click', handleCopyRecoveryKey);
   document.getElementById('btn-copy-key').addEventListener('click', handleCopyKey);
   document.getElementById('btn-edit-profile').addEventListener('click', showProfileDialog);
   document.getElementById('btn-add-collaborator').addEventListener('click', showAddCollaboratorForm);
@@ -172,6 +173,14 @@ function setupEventListeners() {
 
   // Add collaborator form
   document.getElementById('add-collaborator-form').addEventListener('submit', handleAddCollaborator);
+
+  // QR Scanner
+  document.getElementById('btn-scan-collaborator').addEventListener('click', openScanner);
+  const scanner = document.getElementById('collaborator-scanner');
+  scanner.addEventListener('collaborator-scanned', handleScannedCollaborator);
+  scanner.addEventListener('scan-error', (e) => {
+    showToast(`Scan error: ${e.detail.error}`, 'error');
+  });
 
   // Profile dialog
   document.getElementById('profile-form').addEventListener('submit', handleSaveProfile);
@@ -409,13 +418,28 @@ function handleLogout() {
   init();
 }
 
-// Handle copy public key
+// Handle copy recovery key (raw signing key for backups)
+async function handleCopyRecoveryKey() {
+  if (!currentIdentity) return;
+
+  const signingKey = currentIdentity.signingPublicKey || currentIdentity.publicKey;
+
+  try {
+    await navigator.clipboard.writeText(signingKey);
+    showToast('Recovery public key copied to clipboard.', 'success');
+  } catch (error) {
+    console.error('Copy recovery key failed:', error);
+    showToast('Failed to copy recovery key. Check browser permissions.', 'error');
+  }
+}
+
+// Handle copy collaboration share payload
 async function handleCopyKey() {
   if (!currentIdentity) return;
 
   try {
     await navigator.clipboard.writeText(buildIdentitySharePayload());
-    showToast('Identity payload copied to clipboard!', 'success');
+    showToast('Collaboration share JSON copied to clipboard.', 'success');
   } catch (error) {
     console.error('Copy failed:', error);
     showToast('Failed to copy. Check browser permissions.', 'error');
@@ -682,6 +706,71 @@ function showAddCollaboratorForm() {
   }
 
   document.getElementById('collaborator-name').focus();
+}
+
+// Open QR scanner
+function openScanner() {
+  const scanner = document.getElementById('collaborator-scanner');
+  scanner.open('camera'); // Start with camera mode
+}
+
+// Handle scanned collaborator from QR code
+async function handleScannedCollaborator(event) {
+  const collaboratorData = event.detail;
+
+  console.log('Collaborator scanned:', collaboratorData);
+
+  try {
+    // Check if encryptionPublicKey is null and warn
+    if (!collaboratorData.encryptionPublicKey) {
+      const confirmAdd = confirm(
+        `⚠️ Warning: ${collaboratorData.username || 'This collaborator'} has no encryption key.\n\n` +
+        'Encrypted collaboration (capability grants, document sharing) will not be possible.\n\n' +
+        'Do you want to add them anyway?'
+      );
+
+      if (!confirmAdd) {
+        showToast('Scan cancelled', 'info');
+        return;
+      }
+    }
+
+    // Show loading toast
+    showToast('Adding collaborator...', 'info');
+
+    // Add collaborator to platform
+    await platform.addCollaborator({
+      publicKey: collaboratorData.publicKey,
+      encryptionPublicKey: collaboratorData.encryptionPublicKey,
+      did: collaboratorData.did,
+      name: collaboratorData.name || collaboratorData.username || null
+    }, { createProfile: true });
+
+    console.log('✅ Collaborator added from QR scan');
+
+    // Get the profile to show success message
+    const profile = await platform.getProfile(collaboratorData.publicKey);
+    const displayName = profile?.displayName || collaboratorData.username || 'Collaborator';
+
+    let successMsg = `${displayName} added successfully!`;
+    if (hasRemoteStorage) {
+      if (profile?.username || profile?.bio || profile?.avatar) {
+        successMsg += ' Profile loaded from remote.';
+      } else {
+        successMsg += ' No remote profile found.';
+      }
+    }
+
+    showToast(successMsg, 'success');
+
+    // Refresh collaborators list
+    await renderCollaborators();
+    await renderStats();
+
+  } catch (error) {
+    console.error('Failed to add scanned collaborator:', error);
+    showToast(`Failed to add collaborator: ${error.message}`, 'error');
+  }
 }
 
 // Hide add collaborator form

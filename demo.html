@@ -117,7 +117,8 @@
 
           <div class="button-group">
             <button id="btn-logout" class="btn btn-secondary">Lock Account</button>
-            <button id="btn-copy-key" class="btn btn-secondary">Copy Public Key</button>
+            <button id="btn-copy-recovery-key" class="btn btn-secondary">Copy Recovery Key</button>
+            <button id="btn-copy-key" class="btn btn-secondary">Copy Collaboration Share</button>
             <button id="btn-register-passkey" class="btn btn-secondary">Register Passkey</button>
           </div>
         </div>
@@ -159,8 +160,14 @@
         <div class="card">
           <div class="card-header">
             <h2>Collaborators</h2>
-            <button id="btn-add-collaborator" class="btn btn-primary">+ Add Collaborator</button>
+            <div class="button-group">
+              <button id="btn-scan-collaborator" class="btn btn-primary">📷 Scan QR Code</button>
+              <button id="btn-add-collaborator" class="btn btn-secondary">+ Add Manually</button>
+            </div>
           </div>
+
+          <!-- QR Scanner Component -->
+          <collaborator-scanner id="collaborator-scanner"></collaborator-scanner>
 
           <div id="collaborators-list" class="collaborators-list">
             <!-- Populated dynamically -->
@@ -227,6 +234,9 @@
     }
   }
   </script>
+
+  <!-- Import Collaborator Scanner Component -->
+  <script type="module" src="./components/collaborator-scanner.js"></script>
 
   <script type="module" src="./demo.js"></script>
 </body>
