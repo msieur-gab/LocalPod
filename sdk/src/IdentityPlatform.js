@@ -267,8 +267,26 @@ export class IdentityPlatform {
    * List collaborators with profiles
    * @returns {Promise<Array>}
    */
-  async listCollaboratorsWithProfiles() {
-    return this.collaboratorService.listCollaboratorsWithProfiles();
+  async listCollaboratorsWithProfiles(options) {
+    return this.collaboratorService.listCollaboratorsWithProfiles(options);
+  }
+
+  /**
+   * Refresh a collaborator's profile from remote storage
+   * @param {string} publicKey - Public key of collaborator
+   * @returns {Promise<Object|null>} Updated profile
+   */
+  async refreshCollaboratorProfile(publicKey) {
+    return this.collaboratorService.refreshCollaboratorProfile(publicKey);
+  }
+
+  /**
+   * Sync all collaborator profiles from remote storage
+   * Useful to get latest profile updates (bio, avatar, etc.)
+   * @returns {Promise<Map<string, Object>>} Map of updated profiles
+   */
+  async syncCollaboratorProfiles() {
+    return this.collaboratorService.syncCollaboratorProfiles();
   }
 
   /**
