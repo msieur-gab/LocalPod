@@ -39,7 +39,7 @@ The Identity Platform SDK is a **layered, service-oriented architecture** design
     │  ┌─────────────┐  ┌──────────────┐  ┌────────────────┐  │ │
     │  │ DID         │  │ Crypto       │  │ Encoding       │  │ │
     │  │             │  │              │  │                │  │ │
-    │  │ - Generate  │  │ - ECDH       │  │ - Base58       │  │ │
+    │  │ - Generate  │  │ - X25519     │  │ - Base58       │  │ │
     │  │ - Validate  │  │ - AES-GCM    │  │ - Base64       │  │ │
     │  │ - Parse     │  │ - PBKDF2     │  │ - Bytes        │  │ │
     │  └─────────────┘  └──────────────┘  └────────────────┘  │ │
@@ -50,7 +50,7 @@ The Identity Platform SDK is a **layered, service-oriented architecture** design
     │                                                            │ │
     │  - Web Crypto API (native)                                │ │
     │  - IndexedDB (native)                                     │ │
-    │  - @noble/secp256k1 (external)                            │ │
+    │  - @noble/curves/ed25519 (external)                       │ │
     │  - @scure/base (external)                                 │ │
     │  - Dexie (external)                                       │ │
     └────────────────────────────────────────────────────────────┘

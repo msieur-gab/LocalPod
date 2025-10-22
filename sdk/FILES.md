@@ -46,9 +46,9 @@
            │
            ├──> Core Modules
            │    ├──> core/DID.js
-           │    │    └──> Uses: utils/encoding, @noble/secp256k1
+           │    │    └──> Uses: utils/encoding, @noble/curves/ed25519
            │    └──> core/crypto.js
-           │         └──> Uses: utils/encoding, @noble/secp256k1, Web Crypto API
+           │         └──> Uses: utils/encoding, @noble/curves/ed25519, Web Crypto API
            │
            ├──> Storage
            │    └──> storage/PlatformDatabase.js
@@ -102,9 +102,9 @@ import { encryptWithKey } from '@localPod/identity-platform/core/crypto.js';
   - Used by: `storage/PlatformDatabase.js`
   - Why: Simplifies IndexedDB operations, handles versioning
 
-- **@noble/secp256k1** (^2.1.0) - Elliptic curve crypto
+- **@noble/curves/ed25519** (^1.4.0) - Ed25519/X25519 primitives
   - Used by: `core/DID.js`, `core/crypto.js`
-  - Why: Standard secp256k1 implementation for DIDs
+  - Why: Provides Ed25519 signing and X25519 key agreement for DIDs
 
 - **@scure/base** (^1.1.1) - Base encoding
   - Used by: `utils/encoding.js`
@@ -149,12 +149,12 @@ import { encryptWithKey } from '@localPod/identity-platform/core/crypto.js';
 ### PlatformDatabase
 - **Responsibility**: IndexedDB abstraction for platform data
 - **Tables**: accounts, collaborators, profiles, backups
-- **Schema Version**: 1 (initial)
+- **Schema Version**: 2 (capability & passkey registry)
 - **Operations**: CRUD for all tables
 
 ### DID Core Module
 - **Responsibility**: DID generation, parsing, validation
-- **Format**: `did:key:z{base58(multicodec-secp256k1-pub + publicKey)}`
+- **Format**: `did:key:z{base58(multicodec-ed25519-pub + publicKey)}`
 - **Functions**: Pure (no state)
 
 ### Crypto Core Module

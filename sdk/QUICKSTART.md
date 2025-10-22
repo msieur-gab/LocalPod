@@ -25,7 +25,7 @@ Add to your HTML:
   "imports": {
     "@localPod/identity-platform": "./sdk/index.js",
     "dexie": "https://cdn.jsdelivr.net/npm/dexie@3.2.3/+esm",
-    "@noble/secp256k1": "https://cdn.jsdelivr.net/npm/@noble/secp256k1@2.1.0/+esm",
+    "@noble/curves/ed25519": "https://esm.sh/@noble/curves@1.4.0/ed25519",
     "@scure/base": "https://cdn.jsdelivr.net/npm/@scure/base@1.1.1/+esm"
   }
 }
@@ -53,7 +53,7 @@ Add to your HTML:
     "imports": {
       "@localPod/identity-platform": "./sdk/index.js",
       "dexie": "https://cdn.jsdelivr.net/npm/dexie@3.2.3/+esm",
-      "@noble/secp256k1": "https://cdn.jsdelivr.net/npm/@noble/secp256k1@2.1.0/+esm",
+      "@noble/curves/ed25519": "https://esm.sh/@noble/curves@1.4.0/ed25519",
       "@scure/base": "https://cdn.jsdelivr.net/npm/@scure/base@1.1.1/+esm"
     }
   }
@@ -281,7 +281,7 @@ await platform.unlock({ username, password });
 ```
 
 **Error: "Invalid public key"**
-- Solution: Ensure public key is Base58-encoded secp256k1 key
+- Solution: Ensure public key is Base58-encoded Ed25519 key
 ```javascript
 import { isValidPublicKey, base58ToBytes } from '@localPod/identity-platform';
 const isValid = isValidPublicKey(base58ToBytes(publicKey));

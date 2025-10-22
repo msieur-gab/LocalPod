@@ -7,19 +7,34 @@ import {
   listCollaborators,
   getCollaborator,
   getCollaboratorByPublicKey,
+  getCollaboratorByDid,
   addCollaborator,
   removeCollaborator,
+  saveCapabilityGrant,
+  listCapabilityGrantsByGranter,
+  listCapabilityGrantsBySubject,
+  getCapabilityGrant,
+  deleteCapabilityGrant,
+  setCapabilityVersion,
+  getCapabilityVersion,
 } from '../storage/PlatformDatabase.js';
-import { isValidPublicKey } from '../core/DID.js';
-import { base58ToBytes } from '../utils/encoding.js';
+import { didFromPublicKey, publicKeyFromDid, isValidPublicKey } from '../core/DID.js';
+import { base58ToBytes, bytesToBase58 } from '../utils/encoding.js';
+import {
+  createCapabilityGrant,
+  verifyCapabilityGrant,
+  unwrapCapabilityKey,
+  buildGrantRecord,
+} from '../core/CapabilityGrant.js';
 
 /**
  * Collaborator Service
  * Handles collaborator registry and trust network
  */
 export class CollaboratorService {
-  constructor(profileService = null) {
+  constructor(profileService = null, accountService = null) {
     this.profileService = profileService;
+    this.accountService = accountService;
   }
 
   /**
@@ -60,33 +75,62 @@ export class CollaboratorService {
    * @throws {Error} If publicKey is invalid
    */
   async addCollaborator(collaborator, { createProfile = true } = {}) {
-    if (!collaborator?.publicKey) {
-      throw new Error('Collaborator requires publicKey');
+    let signingPublicKey = collaborator?.publicKey ?? null;
+    let collaboratorDid = collaborator?.did ?? null;
+
+    if (!signingPublicKey && collaboratorDid) {
+      const keyBytes = publicKeyFromDid(collaboratorDid);
+      signingPublicKey = bytesToBase58(keyBytes);
     }
 
-    // Validate public key format
+    if (!signingPublicKey) {
+      throw new Error('Collaborator requires publicKey or did');
+    }
+
+    // Validate signing public key format
+    let signingKeyBytes;
     try {
-      const publicKeyBytes = base58ToBytes(collaborator.publicKey);
-      if (!isValidPublicKey(publicKeyBytes)) {
-        throw new Error('Invalid public key format');
+      signingKeyBytes = base58ToBytes(signingPublicKey);
+      if (!isValidPublicKey(signingKeyBytes)) {
+        throw new Error('Invalid signing public key format');
       }
     } catch (error) {
       throw new Error(`Invalid public key: ${error.message}`);
     }
 
+    if (!collaborator?.encryptionPublicKey) {
+      throw new Error('Collaborator requires encryptionPublicKey');
+    }
+
+    let encryptionKeyBytes;
+    try {
+      encryptionKeyBytes = base58ToBytes(collaborator.encryptionPublicKey);
+      if (encryptionKeyBytes.length !== 32) {
+        throw new Error('Encryption public key must be 32 bytes');
+      }
+    } catch (error) {
+      throw new Error(`Invalid encryption public key: ${error.message}`);
+    }
+
+    if (!collaboratorDid) {
+      collaboratorDid = didFromPublicKey(signingKeyBytes);
+    }
+
     // Check if already exists
-    const existing = await getCollaboratorByPublicKey(collaborator.publicKey);
+    const existing = await getCollaboratorByPublicKey(signingPublicKey);
     if (existing) {
       throw new Error('Collaborator already exists');
     }
 
     // Generate ID if not provided
-    const id = collaborator.id || collaborator.publicKey;
+    const id = collaborator.id || signingPublicKey;
 
     // Add to database
     const result = await addCollaborator({
       id,
-      publicKey: collaborator.publicKey,
+      publicKey: signingPublicKey,
+      encryptionPublicKey: collaborator.encryptionPublicKey,
+      did: collaboratorDid,
       name: collaborator.name ?? null,
     });
 
@@ -94,7 +138,7 @@ export class CollaboratorService {
     if (createProfile && this.profileService) {
       try {
         // First, try to fetch the remote profile
-        const remoteProfile = await this.profileService.getProfile(collaborator.publicKey, {
+        const remoteProfile = await this.profileService.getProfile(signingPublicKey, {
           useCache: false,
           fetchRemote: true,
         });
@@ -102,7 +146,7 @@ export class CollaboratorService {
         // If remote profile not found, create a local one with provided name
         if (!remoteProfile && collaborator.name) {
           await this.profileService.saveProfile({
-            publicKey: collaborator.publicKey,
+            publicKey: signingPublicKey,
             displayName: collaborator.name,
           });
         }
@@ -214,6 +258,166 @@ export class CollaboratorService {
       ...collaborator,
       profile: profileMap.get(collaborator.publicKey) ?? null,
     }));
+  }
+
+  // ========== Capability Grants ==========
+
+  async issueCapabilityGrant({
+    subjectDid,
+    subjectEncryptionPublicKey,
+    resourceId,
+    rights = [],
+    expiresAt = null,
+    metadata = null,
+    documentKey = null,
+  }) {
+    if (!this.accountService) {
+      throw new Error('Capability issuance requires account service context');
+    }
+
+    const identity = this.accountService.requireUnlocked();
+    const signingPrivateKey = this.accountService.getSigningPrivateKeyBytes();
+    const encryptionPrivateKey = this.accountService.getEncryptionPrivateKeyBytes();
+
+    if (!signingPrivateKey || !encryptionPrivateKey) {
+      throw new Error('Current account does not have loaded key material');
+    }
+
+    const normalizedRights = Array.isArray(rights)
+      ? Array.from(new Set(rights.map((value) => String(value))))
+      : [];
+
+    let resolvedSubjectEncryptionKey = subjectEncryptionPublicKey;
+    if (!resolvedSubjectEncryptionKey && subjectDid) {
+      const collaborator = await getCollaboratorByDid(subjectDid);
+      resolvedSubjectEncryptionKey = collaborator?.encryptionPublicKey ?? null;
+    }
+
+    if (!resolvedSubjectEncryptionKey) {
+      throw new Error('Subject encryption public key is required to issue capability');
+    }
+
+    const grant = await createCapabilityGrant({
+      granterDid: identity.did,
+      granterSigningPrivateKey: signingPrivateKey,
+      granterEncryptionPrivateKey: encryptionPrivateKey,
+      subjectDid,
+      subjectEncryptionPublicKey: resolvedSubjectEncryptionKey,
+      resourceId,
+      rights: normalizedRights,
+      expiresAt,
+      metadata,
+      documentKey,
+    });
+
+    const currentVersion = await getCapabilityVersion(resourceId);
+    const nextSequence = (currentVersion?.version ?? 0) + 1;
+
+    await saveCapabilityGrant(buildGrantRecord(grant, nextSequence));
+    await setCapabilityVersion({ resourceId, version: nextSequence });
+
+    return {
+      ...grant,
+      sequence: nextSequence,
+    };
+  }
+
+  async listIssuedCapabilities() {
+    if (!this.accountService) return [];
+    const identity = this.accountService.getUnlockedIdentity();
+    if (!identity) return [];
+    return listCapabilityGrantsByGranter(identity.did);
+  }
+
+  async listReceivedCapabilities({ subjectDid } = {}) {
+    const did = subjectDid ?? this.accountService?.getUnlockedIdentity()?.did ?? null;
+    if (!did) return [];
+    return listCapabilityGrantsBySubject(did);
+  }
+
+  async revokeCapabilityGrant(grantId) {
+    if (!grantId) return;
+    const existing = await getCapabilityGrant(grantId);
+    await deleteCapabilityGrant(grantId);
+    if (existing?.resourceId) {
+      const currentVersion = await getCapabilityVersion(existing.resourceId);
+      const nextSequence = (currentVersion?.version ?? 0) + 1;
+      await setCapabilityVersion({ resourceId: existing.resourceId, version: nextSequence });
+    }
+  }
+
+  async unwrapCapabilityGrant(grant) {
+    if (!this.accountService) {
+      throw new Error('Capability unwrap requires account service context');
+    }
+
+    const encryptionPrivateKey = this.accountService.getEncryptionPrivateKeyBytes();
+    if (!encryptionPrivateKey) {
+      throw new Error('Current account is locked or missing encryption key');
+    }
+
+    return unwrapCapabilityKey({
+      grant,
+      recipientEncryptionPrivateKey: encryptionPrivateKey,
+    });
+  }
+
+  async validateCapabilityGrant(grant, granterPublicKey) {
+    let publicKey = granterPublicKey ?? null;
+
+    if (!publicKey && grant?.granterDid) {
+      const collaborator = await getCollaboratorByDid(grant.granterDid);
+      publicKey = collaborator?.publicKey ?? null;
+    }
+
+    if (!publicKey) {
+      throw new Error('Unable to determine granter public key for verification');
+    }
+
+    return verifyCapabilityGrant(grant, publicKey);
+  }
+
+  async acceptCapabilityGrant(grant) {
+    if (!this.accountService) {
+      throw new Error('Capability import requires account service context');
+    }
+
+    if (!grant?.subjectDid || !grant?.granterDid) {
+      throw new Error('Invalid capability grant payload');
+    }
+
+    const identity = this.accountService.getUnlockedIdentity();
+    if (!identity || identity.did !== grant.subjectDid) {
+      throw new Error('Capability grant not intended for this identity');
+    }
+
+    const granterPublicKeyBytes = publicKeyFromDid(grant.granterDid);
+    const granterPublicKey = bytesToBase58(granterPublicKeyBytes);
+
+    const isValid = await verifyCapabilityGrant(grant, granterPublicKey);
+    if (!isValid) {
+      throw new Error('Capability signature invalid or tampered');
+    }
+
+    const existingCollaborator = await getCollaboratorByPublicKey(granterPublicKey);
+    if (!existingCollaborator) {
+      try {
+        await this.addCollaborator(
+          {
+            publicKey: granterPublicKey,
+            encryptionPublicKey: grant.encryptionPublicKey,
+            did: grant.granterDid,
+            name: grant.metadata?.granterName ?? null,
+          },
+          { createProfile: true }
+        );
+      } catch (error) {
+        console.warn('Failed to auto-create collaborator for capability grant:', error);
+      }
+    }
+
+    await saveCapabilityGrant(buildGrantRecord(grant));
+    return grant;
   }
 
   /**

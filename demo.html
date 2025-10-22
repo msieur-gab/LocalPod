@@ -118,6 +118,7 @@
           <div class="button-group">
             <button id="btn-logout" class="btn btn-secondary">Lock Account</button>
             <button id="btn-copy-key" class="btn btn-secondary">Copy Public Key</button>
+            <button id="btn-register-passkey" class="btn btn-secondary">Register Passkey</button>
           </div>
         </div>
       </div>
@@ -172,8 +173,9 @@
         <div class="card">
           <h2>Add New Collaborator</h2>
           <p class="info-text" id="auto-discovery-info">
-            🎉 <strong>Auto-Discovery:</strong> When you add a collaborator by their public key,
-            the SDK will automatically fetch their profile (name, avatar, bio) from Filebase!
+            🎉 <strong>Auto-Discovery:</strong> Share the JSON payload generated from an identity card
+            (QR or copy) to add collaborators with both signing and encryption keys. The SDK will
+            automatically fetch their profile (name, avatar, bio) from Filebase when available.
             <br><br>
             <strong>Status:</strong> Remote storage is <span id="remote-status" style="font-weight: 700;">checking...</span>
           </p>
@@ -184,9 +186,9 @@
               <small>Leave empty to use their remote profile name</small>
             </div>
             <div class="form-group">
-              <label for="collaborator-key">Public Key</label>
-              <textarea id="collaborator-key" required placeholder="Paste public key here (starts with 'z')..." rows="3"></textarea>
-              <small>Get this from your collaborator's identity card or QR code</small>
+              <label for="collaborator-key">Collaborator Share JSON</label>
+              <textarea id="collaborator-key" required placeholder='{"publicKey":"...","encryptionPublicKey":"...","did":"did:key:..."}' rows="3"></textarea>
+              <small>Paste the JSON payload from the collaborator's QR code or copy action.</small>
             </div>
             <div id="add-collaborator-status" class="info" style="display: none;"></div>
             <div id="add-collaborator-error" class="error" style="display: none;"></div>
@@ -219,7 +221,7 @@
     "imports": {
       "@localPod/identity-platform": "./sdk/index.js",
       "dexie": "https://cdn.jsdelivr.net/npm/dexie@3.2.3/+esm",
-      "@noble/secp256k1": "https://cdn.jsdelivr.net/npm/@noble/secp256k1@2.1.0/+esm",
+      "@noble/curves/ed25519": "https://esm.sh/@noble/curves@1.4.0/ed25519",
       "@scure/base": "https://cdn.jsdelivr.net/npm/@scure/base@1.1.1/+esm",
       "qrcode": "https://cdn.jsdelivr.net/npm/qrcode@1.5.3/+esm"
     }

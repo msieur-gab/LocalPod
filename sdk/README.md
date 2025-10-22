@@ -6,7 +6,7 @@
 
 The **Identity Platform SDK** provides a complete foundation for building decentralized applications with:
 
-- 🔐 **DID-based Authentication** - did:key method using secp256k1
+- 🔐 **DID-based Authentication** - did:key method using Ed25519
 - 👤 **User Profiles** - Display names and avatars
 - 🤝 **Collaborator Management** - Trust network and public key registry
 - 🔒 **End-to-End Encryption** - ECDH key agreement + AES-GCM
@@ -58,7 +58,7 @@ The **Identity Platform SDK** provides a complete foundation for building decent
   "imports": {
     "@localPod/identity-platform": "./sdk/index.js",
     "dexie": "https://cdn.jsdelivr.net/npm/dexie@3.2.3/+esm",
-    "@noble/secp256k1": "https://cdn.jsdelivr.net/npm/@noble/secp256k1@2.1.0/+esm",
+    "@noble/curves/ed25519": "https://esm.sh/@noble/curves@1.4.0/ed25519",
     "@scure/base": "https://cdn.jsdelivr.net/npm/@scure/base@1.1.1/+esm"
   }
 }

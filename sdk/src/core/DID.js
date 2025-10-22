@@ -1,75 +1,78 @@
 /**
- * Decentralized Identifier (DID) implementation using did:key method
- * Based on secp256k1 elliptic curve cryptography
+ * Decentralized Identifier (DID) helpers using did:key with Ed25519 keys.
  * @module sdk/core/DID
  */
 
-import { utils, getPublicKey } from '@noble/secp256k1';
+import * as nobleCurves from '@noble/curves/ed25519';
 import { bytesToBase58, base58ToBytes, concatBytes } from '../utils/encoding.js';
 
-// Multicodec prefix for secp256k1 public keys
+const { ed25519 } = nobleCurves;
+
+// Multicodec prefix for Ed25519 public keys (0xed, 0x01)
 // https://github.com/multiformats/multicodec/blob/master/table.csv
-const MULTICODEC_SECP256K1_PUB = new Uint8Array([0xe7, 0x01]);
+const MULTICODEC_ED25519_PUB = new Uint8Array([0xed, 0x01]);
 
 /**
- * Generate a DID from a public key using did:key method
- * @param {Uint8Array} publicKeyBytes - Compressed secp256k1 public key (33 bytes)
- * @returns {string} DID in format "did:key:z{base58(multicodec-prefix + public-key)}"
- * @example
- * // Returns: "did:key:z8mwaSFxvPqEQjCrpNu9i7LoWd3Xp1r2h4N5k6M7t8Y9u"
+ * Generate a DID from an Ed25519 public key using did:key.
+ * @param {Uint8Array} publicKeyBytes - Ed25519 public key (32 bytes)
+ * @returns {string} DID in "did:key:z..." form.
  */
 export const didFromPublicKey = (publicKeyBytes) => {
-  const identifier = concatBytes(MULTICODEC_SECP256K1_PUB, publicKeyBytes);
+  if (!isValidPublicKey(publicKeyBytes)) {
+    throw new Error('Invalid Ed25519 public key');
+  }
+
+  const identifier = concatBytes(MULTICODEC_ED25519_PUB, publicKeyBytes);
   return `did:key:z${bytesToBase58(identifier)}`;
 };
 
 /**
- * Extract public key bytes from a did:key DID
- * @param {string} did - DID string
- * @returns {Uint8Array} Compressed public key bytes
- * @throws {Error} If DID format is invalid
+ * Extract Ed25519 public key bytes from a did:key DID.
+ * @param {string} did - DID string.
+ * @returns {Uint8Array} Public key bytes (32 bytes).
  */
 export const publicKeyFromDid = (did) => {
   if (!did?.startsWith('did:key:z')) {
     throw new Error('Invalid DID format: must start with "did:key:z"');
   }
 
-  const base58Part = did.slice(9); // Remove "did:key:z" prefix
+  const base58Part = did.slice(9);
   const identifierBytes = base58ToBytes(base58Part);
 
-  // Verify multicodec prefix
-  if (identifierBytes[0] !== MULTICODEC_SECP256K1_PUB[0] ||
-      identifierBytes[1] !== MULTICODEC_SECP256K1_PUB[1]) {
-    throw new Error('Invalid DID: unsupported key type (expected secp256k1)');
+  if (
+    identifierBytes.length !== MULTICODEC_ED25519_PUB.length + 32 ||
+    identifierBytes[0] !== MULTICODEC_ED25519_PUB[0] ||
+    identifierBytes[1] !== MULTICODEC_ED25519_PUB[1]
+  ) {
+    throw new Error('Invalid DID: unsupported key type (expected Ed25519)');
   }
 
-  // Extract public key (skip 2-byte multicodec prefix)
-  return identifierBytes.slice(2);
+  return identifierBytes.slice(MULTICODEC_ED25519_PUB.length);
 };
 
 /**
- * Generate a new secp256k1 key pair
- * @returns {{privateKey: Uint8Array, publicKey: Uint8Array}} Key pair
+ * Generate a new Ed25519 signing key pair.
+ * @returns {{privateKey: Uint8Array, publicKey: Uint8Array}}
  */
 export const generateKeyPair = () => {
-  const privateKey = utils.randomPrivateKey();
-  const publicKey = getPublicKey(privateKey, true); // compressed format
+  const privateKey = ed25519.utils.randomPrivateKey();
+  const publicKey = ed25519.getPublicKey(privateKey);
   return { privateKey, publicKey };
 };
 
 /**
- * Get public key from private key
- * @param {Uint8Array} privateKey - Private key bytes
- * @returns {Uint8Array} Compressed public key bytes
+ * Derive the Ed25519 public key from a private key.
+ * @param {Uint8Array} privateKey
+ * @returns {Uint8Array}
  */
 export const getPublicKeyFromPrivate = (privateKey) => {
-  return getPublicKey(privateKey, true);
+  return ed25519.getPublicKey(privateKey);
 };
 
 /**
- * Validate DID format
- * @param {string} did - DID to validate
- * @returns {boolean} True if valid
+ * Validate DID format.
+ * @param {string} did
+ * @returns {boolean}
  */
 export const isValidDid = (did) => {
   try {
@@ -81,19 +84,10 @@ export const isValidDid = (did) => {
 };
 
 /**
- * Validate secp256k1 public key
- * @param {Uint8Array} publicKey - Public key bytes
- * @returns {boolean} True if valid
+ * Validate Ed25519 public key (32 bytes).
+ * @param {Uint8Array} publicKey
+ * @returns {boolean}
  */
 export const isValidPublicKey = (publicKey) => {
-  if (!publicKey || publicKey.length !== 33) {
-    return false;
-  }
-
-  // First byte must be 0x02 or 0x03 (compressed format)
-  if (publicKey[0] !== 0x02 && publicKey[0] !== 0x03) {
-    return false;
-  }
-
-  return true;
+  return publicKey instanceof Uint8Array && publicKey.length === 32;
 };

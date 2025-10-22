@@ -37,7 +37,7 @@ export class IdentityPlatform {
     // Initialize services
     this.accountService = new AccountService();
     this.profileService = new ProfileService(remoteStorage);
-    this.collaboratorService = new CollaboratorService(this.profileService);
+    this.collaboratorService = new CollaboratorService(this.profileService, this.accountService);
 
     // Event listeners for cross-service communication
     this.eventListeners = new Map();
@@ -125,6 +125,21 @@ export class IdentityPlatform {
    */
   getIdentity() {
     return this.accountService.getUnlockedIdentity();
+  }
+
+  async registerPasskey(options) {
+    const credential = await this.accountService.registerPasskey(options);
+    this.emit('passkey-registered', credential);
+    return credential;
+  }
+
+  async listPasskeys(username) {
+    return this.accountService.listPasskeys(username);
+  }
+
+  async removePasskey(credentialId) {
+    await this.accountService.removePasskey(credentialId);
+    this.emit('passkey-removed', { credentialId });
   }
 
   /**
@@ -305,6 +320,41 @@ export class IdentityPlatform {
    */
   async isTrustedCollaborator(publicKey) {
     return this.collaboratorService.isTrustedCollaborator(publicKey);
+  }
+
+  // ========== Capability Grants ==========
+
+  async issueCapabilityGrant(params) {
+    const grant = await this.collaboratorService.issueCapabilityGrant(params);
+    this.emit('capability-issued', grant);
+    return grant;
+  }
+
+  async listIssuedCapabilities() {
+    return this.collaboratorService.listIssuedCapabilities();
+  }
+
+  async listReceivedCapabilities(options) {
+    return this.collaboratorService.listReceivedCapabilities(options);
+  }
+
+  async revokeCapabilityGrant(grantId) {
+    await this.collaboratorService.revokeCapabilityGrant(grantId);
+    this.emit('capability-revoked', { grantId });
+  }
+
+  async unwrapCapabilityGrant(grant) {
+    return this.collaboratorService.unwrapCapabilityGrant(grant);
+  }
+
+  async validateCapabilityGrant(grant, granterPublicKey) {
+    return this.collaboratorService.validateCapabilityGrant(grant, granterPublicKey);
+  }
+
+  async acceptCapabilityGrant(grant) {
+    const stored = await this.collaboratorService.acceptCapabilityGrant(grant);
+    this.emit('capability-accepted', stored);
+    return stored;
   }
 
   // ========== Event System ==========

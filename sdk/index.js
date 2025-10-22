@@ -18,9 +18,17 @@ export { ProfileService } from './src/services/ProfileService.js';
 export { CollaboratorService } from './src/services/CollaboratorService.js';
 
 // Core modules
-export { didFromPublicKey, publicKeyFromDid, generateKeyPair, isValidDid, isValidPublicKey } from './src/core/DID.js';
+export {
+  didFromPublicKey,
+  publicKeyFromDid,
+  generateKeyPair,
+  isValidDid,
+  isValidPublicKey,
+} from './src/core/DID.js';
 export {
   generateDocumentKey,
+  generateEncryptionKeyPair,
+  getEncryptionPublicKey,
   encryptWithKey,
   decryptWithKey,
   encryptPrivateKey,
@@ -35,6 +43,21 @@ export {
   decryptAndVerifyFromSender,
   PBKDF2_ITERATIONS,
 } from './src/core/crypto.js';
+export {
+  PasskeySession,
+  isPasskeySupported,
+  generateChallenge as generatePasskeyChallenge,
+  serializeCredential as serializePasskeyCredential,
+  serializeAssertion as serializePasskeyAssertion,
+  deriveSessionKey as derivePasskeySessionKey,
+} from './src/core/PasskeySession.js';
+export {
+  createCapabilityGrant,
+  verifyCapabilityGrant,
+  unwrapCapabilityKey,
+  buildGrantRecord,
+  generateGrantId,
+} from './src/core/CapabilityGrant.js';
 
 // Storage
 export { PlatformDatabase, getPlatformDatabase } from './src/storage/PlatformDatabase.js';

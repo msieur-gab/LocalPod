@@ -2,7 +2,7 @@
  * Identity Platform SDK - Demo Application
  */
 
-import { IdentityPlatform } from '@localPod/identity-platform';
+import { IdentityPlatform, isPasskeySupported } from '@localPod/identity-platform';
 import { SimpleStorage } from './storage.js';
 import { config } from './config.js';
 import QRCode from 'qrcode';
@@ -12,6 +12,73 @@ let platform = null;
 let currentIdentity = null;
 let currentProfile = null;
 let hasRemoteStorage = false;
+let cachedCollaborators = [];
+
+function buildIdentitySharePayload() {
+  if (!currentIdentity) return '';
+
+  return JSON.stringify(
+    {
+      did: currentIdentity.did,
+      publicKey: currentIdentity.signingPublicKey || currentIdentity.publicKey,
+      encryptionPublicKey: currentIdentity.encryptionPublicKey ?? null,
+      username: currentIdentity.username,
+    },
+    null,
+    2
+  );
+}
+
+function buildCollaboratorSharePayload(collaborator) {
+  return JSON.stringify(
+    {
+      did: collaborator.did,
+      publicKey: collaborator.publicKey,
+      encryptionPublicKey: collaborator.encryptionPublicKey,
+      name: collaborator.name,
+    },
+    null,
+    2
+  );
+}
+
+function buildSafeShare(collaborator) {
+  return buildCollaboratorSharePayload(collaborator)
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/\n/g, '\\n');
+}
+
+function parseCollaboratorInput(raw) {
+  try {
+    const parsed = JSON.parse(raw);
+    const publicKey = parsed.publicKey || parsed.signingKey || null;
+    const encryptionPublicKey = parsed.encryptionPublicKey || parsed.encryptionKey || null;
+    const did = parsed.did || null;
+    const name = parsed.name || parsed.displayName || null;
+
+    if (!publicKey) {
+      throw new Error('Collaborator share must include publicKey');
+    }
+
+    if (!encryptionPublicKey) {
+      throw new Error('Collaborator share missing encryptionPublicKey');
+    }
+
+    if (!did) {
+      throw new Error('Collaborator share must include did');
+    }
+
+    return {
+      publicKey,
+      encryptionPublicKey,
+      did,
+      name,
+    };
+  } catch (error) {
+    throw new Error('Invalid collaborator share payload. Expect JSON with publicKey and encryptionPublicKey.');
+  }
+}
 
 // Initialize app
 async function init() {
@@ -93,6 +160,15 @@ function setupEventListeners() {
   document.getElementById('btn-edit-profile').addEventListener('click', showProfileDialog);
   document.getElementById('btn-add-collaborator').addEventListener('click', showAddCollaboratorForm);
   document.getElementById('btn-cancel-add').addEventListener('click', hideAddCollaboratorForm);
+
+  const passkeyButton = document.getElementById('btn-register-passkey');
+  if (passkeyButton) {
+    if (!isPasskeySupported()) {
+      passkeyButton.style.display = 'none';
+    } else {
+      passkeyButton.addEventListener('click', handleRegisterPasskey);
+    }
+  }
 
   // Add collaborator form
   document.getElementById('add-collaborator-form').addEventListener('submit', handleAddCollaborator);
@@ -318,6 +394,8 @@ async function handleImportAccount(event) {
 function handleLogout() {
   platform.lock();
   currentIdentity = null;
+  currentProfile = null;
+  cachedCollaborators = [];
 
   // Clear forms
   document.getElementById('login-password').value = '';
@@ -336,11 +414,29 @@ async function handleCopyKey() {
   if (!currentIdentity) return;
 
   try {
-    await navigator.clipboard.writeText(currentIdentity.publicKey);
-    showToast('Public key copied to clipboard!', 'success');
+    await navigator.clipboard.writeText(buildIdentitySharePayload());
+    showToast('Identity payload copied to clipboard!', 'success');
   } catch (error) {
     console.error('Copy failed:', error);
     showToast('Failed to copy. Check browser permissions.', 'error');
+  }
+}
+
+async function handleRegisterPasskey() {
+  if (!currentIdentity) {
+    showToast('Unlock your account before registering a passkey.', 'error');
+    return;
+  }
+
+  try {
+    await platform.registerPasskey({
+      displayName: currentProfile?.displayName || currentIdentity.username,
+    });
+    showToast('Passkey registered for this account.', 'success');
+    await renderIdentity();
+  } catch (error) {
+    console.error('Passkey registration failed:', error);
+    showToast('Failed to register passkey: ' + error.message, 'error');
   }
 }
 
@@ -385,6 +481,14 @@ async function renderIdentity() {
   const container = document.getElementById('identity-info');
   const displayName = currentProfile?.displayName || currentIdentity.username;
   const bio = currentProfile?.bio || '';
+  let passkeyCount = 0;
+
+  try {
+    const passkeys = await platform.listPasskeys();
+    passkeyCount = passkeys.length;
+  } catch (error) {
+    console.warn('Unable to load passkey list:', error);
+  }
 
   container.innerHTML = `
     <div class="info-row">
@@ -406,8 +510,16 @@ async function renderIdentity() {
       <span class="value monospace">${shortenDID(currentIdentity.did)}</span>
     </div>
     <div class="info-row">
-      <span class="label">Public Key:</span>
-      <span class="value monospace">${shortenKey(currentIdentity.publicKey)}</span>
+      <span class="label">Signing Key:</span>
+      <span class="value monospace">${shortenKey(currentIdentity.signingPublicKey || currentIdentity.publicKey)}</span>
+    </div>
+    <div class="info-row">
+      <span class="label">Encryption Key:</span>
+      <span class="value monospace">${currentIdentity.encryptionPublicKey ? shortenKey(currentIdentity.encryptionPublicKey) : '—'}</span>
+    </div>
+    <div class="info-row">
+      <span class="label">Passkeys:</span>
+      <span class="value">${passkeyCount}</span>
     </div>
     <div class="info-row">
       <span class="label">Created:</span>
@@ -436,7 +548,7 @@ async function renderQRCode() {
 
   try {
     const canvas = document.getElementById('qr-canvas');
-    await QRCode.toCanvas(canvas, currentIdentity.publicKey, {
+    await QRCode.toCanvas(canvas, buildIdentitySharePayload(), {
       width: 180,
       margin: 1,
       color: {
@@ -463,6 +575,8 @@ async function renderCollaborators() {
       syncRemote: hasRemoteStorage
     });
 
+    cachedCollaborators = collaborators;
+
     if (hasRemoteStorage) {
       console.log(`✅ Loaded ${collaborators.length} collaborators with synced profiles`);
     }
@@ -478,6 +592,8 @@ async function renderCollaborators() {
       const bio = collab.profile?.bio || '';
       const avatar = collab.profile?.avatar || null;
       const publicKey = collab.publicKey;
+      const encryptionKey = collab.encryptionPublicKey;
+      const did = collab.did;
       const collabId = collab.id;
       const hasRemoteProfile = collab.profile?.displayName || collab.profile?.avatar || collab.profile?.bio;
 
@@ -499,10 +615,13 @@ async function renderCollaborators() {
             </div>
             ${username ? `<div class="collaborator-username">@${username}</div>` : ''}
             ${bio ? `<div class="collaborator-bio">${bio}</div>` : ''}
-            <div class="collaborator-key">${shortenKey(publicKey)}</div>
+            <div class="collaborator-key">Signing: ${shortenKey(publicKey)}</div>
+            <div class="collaborator-key">Encryption: ${shortenKey(encryptionKey)}</div>
+            ${did ? `<div class="collaborator-did">DID: ${shortenDID(did)}</div>` : ''}
           </div>
           <div class="collaborator-actions">
-            <button class="btn btn-small btn-secondary" onclick="copyToClipboard('${publicKey}')">Copy Key</button>
+            <button class="btn btn-small btn-secondary" onclick="copyToClipboard('${buildSafeShare(collab)}')">Copy Share</button>
+            <button class="btn btn-small btn-primary" onclick="handleIssueCapability('${collabId}')">Issue Capability</button>
             <button class="btn btn-small btn-danger" onclick="handleRemoveCollaborator('${collabId}', '${displayName.replace(/'/g, "\\'")}')">Remove</button>
           </div>
         </div>
@@ -599,15 +718,33 @@ async function handleAddCollaborator(event) {
 
     console.log('Adding collaborator:', publicKey);
 
+    let capabilityPayload = null;
+    try {
+      capabilityPayload = JSON.parse(publicKey);
+    } catch {
+      capabilityPayload = null;
+    }
+
+    if (capabilityPayload && capabilityPayload.signature) {
+      await platform.acceptCapabilityGrant(capabilityPayload);
+      showToast('Capability grant imported successfully!', 'success');
+      hideAddCollaboratorForm();
+      await renderCollaborators();
+      await renderStats();
+      return;
+    }
+
+    const descriptor = parseCollaboratorInput(publicKey);
+
     await platform.addCollaborator({
-      publicKey,
-      name: name || null // Let SDK use remote profile name if available
+      ...descriptor,
+      name: name || descriptor.name || null
     }, { createProfile: true });
 
     console.log('✅ Collaborator added');
 
     // Get the profile to show success message
-    const profile = await platform.getProfile(publicKey);
+    const profile = await platform.getProfile(descriptor.publicKey);
     const displayName = profile?.displayName || name || 'Collaborator';
 
     let successMsg = `${displayName} added successfully!`;
@@ -632,6 +769,56 @@ async function handleAddCollaborator(event) {
     statusDiv.style.display = 'none';
     errorDiv.textContent = error.message;
     errorDiv.style.display = 'block';
+  }
+}
+
+async function handleIssueCapability(collabId) {
+  const collaborator = cachedCollaborators.find((c) => c.id === collabId);
+  if (!collaborator) {
+    showToast('Collaborator not found', 'error');
+    return;
+  }
+
+  const resourceId = prompt('Resource identifier to share (e.g., doc-123)');
+  if (!resourceId) {
+    return;
+  }
+
+  const rightsInput = prompt('Comma-separated rights (e.g., read,write)', 'read');
+  const rights = rightsInput
+    ? rightsInput
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean)
+    : [];
+
+  const expiryInput = prompt('Expiry in days (leave empty for none)');
+  let expiresAt = null;
+  if (expiryInput) {
+    const days = Number.parseInt(expiryInput, 10);
+    if (!Number.isNaN(days) && days > 0) {
+      expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+    }
+  }
+
+  try {
+    const grant = await platform.issueCapabilityGrant({
+      subjectDid: collaborator.did,
+      subjectEncryptionPublicKey: collaborator.encryptionPublicKey,
+      resourceId,
+      rights,
+      expiresAt,
+      metadata: {
+        collaboratorName: collaborator.name ?? null,
+      },
+    });
+
+    const grantJson = JSON.stringify(grant, null, 2);
+    await navigator.clipboard.writeText(grantJson);
+    showToast('Capability grant copied to clipboard.', 'success');
+  } catch (error) {
+    console.error('Capability issuance failed:', error);
+    showToast('Failed to issue capability: ' + error.message, 'error');
   }
 }
 
@@ -777,13 +964,18 @@ function readFileAsDataURL(file) {
 // Utility: Copy to clipboard (global function for onclick)
 window.copyToClipboard = async function(text) {
   try {
-    await navigator.clipboard.writeText(text);
+    const normalized = text
+      .replace(/\\n/g, '\n')
+      .replace(/\\\\/g, '\\');
+    await navigator.clipboard.writeText(normalized);
     showToast('Copied to clipboard!', 'success');
   } catch (error) {
     console.error('Copy failed:', error);
     showToast('Failed to copy', 'error');
   }
 };
+
+window.handleIssueCapability = handleIssueCapability;
 
 // Utility: Shorten DID
 function shortenDID(did) {
@@ -793,7 +985,7 @@ function shortenDID(did) {
 
 // Utility: Shorten key
 function shortenKey(key) {
-  if (!key) return '';
+  if (!key) return '—';
   return key.slice(0, 12) + '...' + key.slice(-8);
 }
 

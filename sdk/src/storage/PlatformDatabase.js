@@ -7,7 +7,7 @@
 import Dexie from 'dexie';
 
 const DATABASE_NAME = 'identityPlatform';
-const CURRENT_VERSION = 1;
+const CURRENT_VERSION = 2;
 
 /**
  * Identity Platform Database
@@ -18,13 +18,34 @@ export class PlatformDatabase extends Dexie {
     super(DATABASE_NAME);
 
     // Version 1: Initial schema
-    this.version(CURRENT_VERSION).stores({
+    this.version(1).stores({
       accounts: '&username, publicKey, createdAt',
-      collaborators: '&id, publicKey, addedAt',
+      collaborators: '&id, publicKey, did, addedAt',
       profiles: '&publicKey, updatedAt',
       backups: '&publicKey, updatedAt',
-      loginAttempts: '&username, lastAttempt', // Track failed login attempts
+      loginAttempts: '&username, lastAttempt',
     });
+
+    // Version 2: Capability grants + passkey registry
+    this.version(CURRENT_VERSION)
+      .stores({
+        accounts: '&username, publicKey, createdAt',
+        collaborators: '&id, publicKey, did, addedAt',
+        profiles: '&publicKey, updatedAt',
+        backups: '&publicKey, updatedAt',
+        loginAttempts: '&username, lastAttempt',
+        capabilityGrants: '&id, granterDid, subjectDid, resourceId',
+        capabilityVersions: '&resourceId, updatedAt',
+        passkeys: '&credentialId, username',
+      })
+      .upgrade(async (tx) => {
+        // Ensure existing records have new passkey/capability defaults
+        const collTable = tx.table('collaborators');
+        await collTable.toCollection().modify((collaborator) => {
+          // Provide defaults for new optional fields
+          collaborator.metadata = collaborator.metadata ?? null;
+        });
+      });
 
     // Type definitions for tables
     this.accounts = this.table('accounts');
@@ -32,6 +53,9 @@ export class PlatformDatabase extends Dexie {
     this.profiles = this.table('profiles');
     this.backups = this.table('backups');
     this.loginAttempts = this.table('loginAttempts');
+    this.capabilityGrants = this.table('capabilityGrants');
+    this.capabilityVersions = this.table('capabilityVersions');
+    this.passkeys = this.table('passkeys');
   }
 }
 
@@ -119,6 +143,60 @@ export const deleteAccount = async (username) => {
   await db.accounts.delete(username);
 };
 
+// ========== Passkey Registry ==========
+
+/**
+ * Save or update a passkey credential record.
+ * @param {Object} credential
+ * @param {string} credential.credentialId - Base64url credential ID
+ * @param {string} credential.username - Associated username
+ * @param {Object} [credential.meta] - Serialized credential payload (optional)
+ * @returns {Promise<void>}
+ */
+export const savePasskeyCredential = async (credential) => {
+  if (!credential?.credentialId || !credential?.username) {
+    throw new Error('savePasskeyCredential requires credentialId and username');
+  }
+
+  const db = getPlatformDatabase();
+  await db.passkeys.put({
+    credentialId: credential.credentialId,
+    username: credential.username,
+    meta: credential.meta ?? null,
+    updatedAt: new Date().toISOString(),
+  });
+};
+
+/**
+ * List passkeys for a username.
+ * @param {string} username
+ * @returns {Promise<Array>}
+ */
+export const listPasskeyCredentials = async (username) => {
+  const db = getPlatformDatabase();
+  return db.passkeys.where('username').equals(username).toArray();
+};
+
+/**
+ * Get passkey credential by credentialId.
+ * @param {string} credentialId
+ * @returns {Promise<Object|undefined>}
+ */
+export const getPasskeyCredential = async (credentialId) => {
+  const db = getPlatformDatabase();
+  return db.passkeys.get(credentialId);
+};
+
+/**
+ * Remove passkey credential.
+ * @param {string} credentialId
+ * @returns {Promise<void>}
+ */
+export const deletePasskeyCredential = async (credentialId) => {
+  const db = getPlatformDatabase();
+  await db.passkeys.delete(credentialId);
+};
+
 // ========== Collaborator Operations ==========
 
 /**
@@ -150,6 +228,12 @@ export const getCollaboratorByPublicKey = async (publicKey) => {
   return db.collaborators.where('publicKey').equals(publicKey).first();
 };
 
+export const getCollaboratorByDid = async (did) => {
+  if (!did) return null;
+  const db = getPlatformDatabase();
+  return db.collaborators.where('did').equals(did).first();
+};
+
 /**
  * Add or update collaborator
  * @param {Object} collaborator
@@ -170,6 +254,9 @@ export const addCollaborator = async (collaborator) => {
     id: collaborator.id,
     name: collaborator.name ?? null,
     publicKey: collaborator.publicKey,
+    encryptionPublicKey: collaborator.encryptionPublicKey ?? null,
+    did: collaborator.did ?? null,
+    metadata: collaborator.metadata ?? null,
     addedAt: collaborator.addedAt ?? now,
   });
 
@@ -269,10 +356,17 @@ export const saveBackup = async (backup) => {
   const db = getPlatformDatabase();
   await db.backups.put({
     publicKey: backup.publicKey,
+    did: backup.did ?? null,
     cipher: backup.cipher,
     iv: backup.iv,
     salt: backup.salt,
     iterations: backup.iterations ?? 600000,
+    encryptionCipher: backup.encryptionCipher ?? null,
+    encryptionIv: backup.encryptionIv ?? null,
+    encryptionSalt: backup.encryptionSalt ?? null,
+    encryptionIterations: backup.encryptionIterations ?? 600000,
+    encryptionPublicKey: backup.encryptionPublicKey ?? null,
+    version: backup.version ?? 1,
     updatedAt: backup.updatedAt ?? new Date().toISOString(),
   });
 };
@@ -296,6 +390,69 @@ export const getBackup = async (publicKey) => {
 export const deleteBackup = async (publicKey) => {
   const db = getPlatformDatabase();
   await db.backups.delete(publicKey);
+};
+
+// ========== Capability Grants ==========
+
+/**
+ * Save or update capability grant
+ * @param {Object} grant
+ * @param {string} grant.id - Unique grant identifier
+ * @returns {Promise<void>}
+ */
+export const saveCapabilityGrant = async (grant) => {
+  if (!grant?.id) {
+    throw new Error('saveCapabilityGrant requires id');
+  }
+
+  const db = getPlatformDatabase();
+  await db.capabilityGrants.put({
+    ...grant,
+    updatedAt: grant.updatedAt ?? new Date().toISOString(),
+  });
+};
+
+export const getCapabilityGrant = async (id) => {
+  const db = getPlatformDatabase();
+  return db.capabilityGrants.get(id);
+};
+
+export const listCapabilityGrantsByGranter = async (granterDid) => {
+  const db = getPlatformDatabase();
+  return db.capabilityGrants.where('granterDid').equals(granterDid).toArray();
+};
+
+export const listCapabilityGrantsBySubject = async (subjectDid) => {
+  const db = getPlatformDatabase();
+  return db.capabilityGrants.where('subjectDid').equals(subjectDid).toArray();
+};
+
+export const listCapabilityGrantsByResource = async (resourceId) => {
+  const db = getPlatformDatabase();
+  return db.capabilityGrants.where('resourceId').equals(resourceId).toArray();
+};
+
+export const deleteCapabilityGrant = async (id) => {
+  const db = getPlatformDatabase();
+  await db.capabilityGrants.delete(id);
+};
+
+export const setCapabilityVersion = async ({ resourceId, version, updatedAt }) => {
+  if (!resourceId) {
+    throw new Error('setCapabilityVersion requires resourceId');
+  }
+
+  const db = getPlatformDatabase();
+  await db.capabilityVersions.put({
+    resourceId,
+    version,
+    updatedAt: updatedAt ?? new Date().toISOString(),
+  });
+};
+
+export const getCapabilityVersion = async (resourceId) => {
+  const db = getPlatformDatabase();
+  return db.capabilityVersions.get(resourceId);
 };
 
 // ========== Login Attempt Tracking (Brute Force Protection) ==========
