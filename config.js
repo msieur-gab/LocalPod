@@ -19,9 +19,9 @@
 
 export const config = {
   filebase: {
-    accessKey: 'YOUR_FILEBASE_ACCESS_KEY',
-    secretKey: 'YOUR_FILEBASE_SECRET_KEY',
-    bucket: 'your-collab-writer-bucket',
+    accessKey: 'DF2AA0ECE4C39A50297B',
+    secretKey: 'XQyrX3Rbp3hM1QIVmSwfAd9Xhz5iNwWCWvVq0KzU',
+    bucket: 'markdown-collab',
     region: 'us-east-1',
   },
 };
