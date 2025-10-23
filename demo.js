@@ -194,6 +194,37 @@ function setupEventListeners() {
   document.getElementById('btn-cancel-profile').addEventListener('click', hideProfileDialog);
   document.getElementById('btn-remove-avatar').addEventListener('click', handleRemoveAvatar);
   document.getElementById('profile-avatar').addEventListener('change', handleAvatarPreview);
+
+  // Setup password visibility toggles
+  setupPasswordToggles();
+}
+
+// Setup password visibility toggle functionality
+function setupPasswordToggles() {
+  const toggleButtons = document.querySelectorAll('.password-toggle');
+
+  toggleButtons.forEach(button => {
+    button.addEventListener('click', () => {
+      const targetId = button.getAttribute('data-target');
+      const input = document.getElementById(targetId);
+      const eyeShow = button.querySelector('.eye-show');
+      const eyeHide = button.querySelector('.eye-hide');
+
+      if (!input || !eyeShow || !eyeHide) return;
+
+      if (input.type === 'password') {
+        // Show password
+        input.type = 'text';
+        eyeShow.style.display = 'none';
+        eyeHide.style.display = 'block';
+      } else {
+        // Hide password
+        input.type = 'password';
+        eyeShow.style.display = 'block';
+        eyeHide.style.display = 'none';
+      }
+    });
+  });
 }
 
 // Show authentication gate
