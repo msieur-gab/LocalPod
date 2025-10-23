@@ -239,6 +239,7 @@ export class AccountService {
       encryptionSalt: accountRecord.encryptionSalt,
       encryptionIterations: accountRecord.encryptionIterations,
       encryptionPublicKey: accountRecord.encryptionPublicKey,
+      version: 1,
       updatedAt: now,
     });
 
@@ -368,6 +369,7 @@ export class AccountService {
       encryptionSalt: account.encryptionSalt,
       encryptionIterations: account.encryptionIterations,
       encryptionPublicKey: account.encryptionPublicKey,
+      version: 1,
       updatedAt: account.updatedAt,
     });
 
@@ -430,7 +432,7 @@ export class AccountService {
       encryptionSalt: this.currentAccountRecord.encryptionSalt ?? null,
       encryptionIterations: this.currentAccountRecord.encryptionIterations ?? 600000,
       encryptionPublicKey: this.currentAccountRecord.encryptionPublicKey ?? null,
-      version: 2,
+      version: 1,
       updatedAt: this.currentAccountRecord.updatedAt ?? new Date().toISOString(),
       createdAt: this.currentAccountRecord.createdAt ?? null,
     };
@@ -576,6 +578,7 @@ export class AccountService {
       encryptionSalt: accountRecord.encryptionSalt,
       encryptionIterations: accountRecord.encryptionIterations,
       encryptionPublicKey: accountRecord.encryptionPublicKey,
+      version: 1,
       updatedAt: backup.updatedAt ?? now,
     });
 

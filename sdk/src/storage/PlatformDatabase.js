@@ -7,7 +7,6 @@
 import Dexie from 'dexie';
 
 const DATABASE_NAME = 'identityPlatform';
-const CURRENT_VERSION = 2;
 
 /**
  * Identity Platform Database
@@ -17,35 +16,17 @@ export class PlatformDatabase extends Dexie {
   constructor() {
     super(DATABASE_NAME);
 
-    // Version 1: Initial schema
+    // Current schema
     this.version(1).stores({
       accounts: '&username, publicKey, createdAt',
       collaborators: '&id, publicKey, did, addedAt',
       profiles: '&publicKey, updatedAt',
       backups: '&publicKey, updatedAt',
       loginAttempts: '&username, lastAttempt',
+      capabilityGrants: '&id, granterDid, subjectDid, resourceId',
+      capabilityVersions: '&resourceId, updatedAt',
+      passkeys: '&credentialId, username',
     });
-
-    // Version 2: Capability grants + passkey registry
-    this.version(CURRENT_VERSION)
-      .stores({
-        accounts: '&username, publicKey, createdAt',
-        collaborators: '&id, publicKey, did, addedAt',
-        profiles: '&publicKey, updatedAt',
-        backups: '&publicKey, updatedAt',
-        loginAttempts: '&username, lastAttempt',
-        capabilityGrants: '&id, granterDid, subjectDid, resourceId',
-        capabilityVersions: '&resourceId, updatedAt',
-        passkeys: '&credentialId, username',
-      })
-      .upgrade(async (tx) => {
-        // Ensure existing records have new passkey/capability defaults
-        const collTable = tx.table('collaborators');
-        await collTable.toCollection().modify((collaborator) => {
-          // Provide defaults for new optional fields
-          collaborator.metadata = collaborator.metadata ?? null;
-        });
-      });
 
     // Type definitions for tables
     this.accounts = this.table('accounts');
@@ -361,12 +342,15 @@ export const deleteProfile = async (publicKey) => {
  * @param {string} backup.cipher - Base64 encrypted private key
  * @param {string} backup.iv - Base64 IV
  * @param {string} backup.salt - Base64 salt
- * @param {number} backup.iterations - PBKDF2 iterations
+ * @param {number} backup.iterations - PBKDF2 iterations (required)
+ * @param {number} backup.encryptionIterations - PBKDF2 iterations for encryption key (required)
+ * @param {number} backup.version - Backup format version (required)
  * @returns {Promise<void>}
  */
 export const saveBackup = async (backup) => {
-  if (!backup?.publicKey || !backup?.cipher || !backup?.iv || !backup?.salt) {
-    throw new Error('saveBackup requires publicKey, cipher, iv, and salt');
+  if (!backup?.publicKey || !backup?.cipher || !backup?.iv || !backup?.salt ||
+      !backup?.iterations || !backup?.encryptionIterations || !backup?.version) {
+    throw new Error('saveBackup requires publicKey, cipher, iv, salt, iterations, encryptionIterations, and version');
   }
 
   const db = getPlatformDatabase();
@@ -376,13 +360,13 @@ export const saveBackup = async (backup) => {
     cipher: backup.cipher,
     iv: backup.iv,
     salt: backup.salt,
-    iterations: backup.iterations ?? 600000,
+    iterations: backup.iterations,
     encryptionCipher: backup.encryptionCipher ?? null,
     encryptionIv: backup.encryptionIv ?? null,
     encryptionSalt: backup.encryptionSalt ?? null,
-    encryptionIterations: backup.encryptionIterations ?? 600000,
+    encryptionIterations: backup.encryptionIterations,
     encryptionPublicKey: backup.encryptionPublicKey ?? null,
-    version: backup.version ?? 1,
+    version: backup.version,
     updatedAt: backup.updatedAt ?? new Date().toISOString(),
   });
 };
