@@ -16,6 +16,7 @@ export { IdentityPlatform } from './src/IdentityPlatform.js';
 export { AccountService } from './src/services/AccountService.js';
 export { ProfileService } from './src/services/ProfileService.js';
 export { CollaboratorService } from './src/services/CollaboratorService.js';
+export { ServiceRegistry } from './src/services/ServiceRegistry.js';
 
 // Core modules
 export {

@@ -24,6 +24,22 @@ export const config = {
     bucket: 'markdown-collab',
     region: 'us-east-1',
   },
+  services: [
+    {
+      id: 'localpod-notes',
+      name: 'LocalPod Notes',
+      did: 'did:key:z6MkirvHWx3Wvp2YFXSGAizgkNZwPYkXhx2ci2eeoYAuttJX',
+      /**
+       * IMPORTANT: Replace with the service's X25519 encryption public key (base58).
+       * This allows LocalPod to encrypt shared capability keys for the service.
+       */
+      encryptionPublicKey: '5HnyrpkwFX4NZP5XXesm5kshJRGDdkqm1TTMm43CaK53',
+      requestedRights: ['write', 'read'],
+      resourcePathTemplate: 'ipfs://${publicKey}/notes/*',
+      defaultGrantDurationMs: 365 * 24 * 60 * 60 * 1000,
+      description: 'LocalPod Notes demo service for personal IPFS-backed notes.',
+    },
+  ],
 };
 
 /**
@@ -43,4 +59,8 @@ export const config = {
  *    - Replace with actual Filebase credentials
  *    - Enables profile sync and backup
  *    - Add config.js to .gitignore!
+ *
+ * Service Manifest:
+ * - Populate `services` with trusted service DIDs and their X25519 encryption public keys
+ * - Grant flows will refuse to issue capabilities until the encryption key is provided
  */

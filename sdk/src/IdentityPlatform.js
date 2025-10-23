@@ -7,6 +7,7 @@
 import { AccountService } from './services/AccountService.js';
 import { ProfileService } from './services/ProfileService.js';
 import { CollaboratorService } from './services/CollaboratorService.js';
+import { ServiceRegistry } from './services/ServiceRegistry.js';
 import { signChallenge as signServiceChallengeHelper } from './core/Challenge.js';
 
 /**
@@ -29,16 +30,20 @@ import { signChallenge as signServiceChallengeHelper } from './core/Challenge.js
 export class IdentityPlatform {
   /**
    * Create Identity Platform instance
-   * @param {Object} [options]
-   * @param {Object} [options.remoteStorage] - Remote storage provider (e.g., Filebase)
-   */
-  constructor({ remoteStorage = null } = {}) {
+ * @param {Object} [options]
+ * @param {Object} [options.remoteStorage] - Remote storage provider (e.g., Filebase)
+ * @param {Array} [options.serviceManifest] - Array of known service definitions
+ */
+  constructor({ remoteStorage = null, serviceManifest = [] } = {}) {
     this.remoteStorage = remoteStorage;
 
     // Initialize services
     this.accountService = new AccountService();
     this.profileService = new ProfileService(remoteStorage);
     this.collaboratorService = new CollaboratorService(this.profileService, this.accountService);
+    this.serviceRegistry = new ServiceRegistry({
+      manifest: Array.isArray(serviceManifest) ? serviceManifest : [],
+    });
 
     // Event listeners for cross-service communication
     this.eventListeners = new Map();
@@ -500,6 +505,24 @@ export class IdentityPlatform {
     const stored = await this.collaboratorService.acceptCapabilityGrant(grant);
     this.emit('capability-accepted', stored);
     return stored;
+  }
+
+  // ========== Service Registry ==========
+
+  registerServiceManifest(manifest) {
+    this.serviceRegistry.registerManifest(manifest);
+  }
+
+  registerService(entry) {
+    return this.serviceRegistry.registerService(entry);
+  }
+
+  listServices() {
+    return this.serviceRegistry.listServices();
+  }
+
+  getServiceByDid(did) {
+    return this.serviceRegistry.getService(did);
   }
 
   // ========== Event System ==========

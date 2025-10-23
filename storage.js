@@ -375,6 +375,88 @@ export class SimpleStorage {
     return new Uint8Array(await response.arrayBuffer());
   }
 
+  async uploadObject(key, data, contentType) {
+    let payload = data;
+    let finalContentType = contentType ?? null;
+
+    if (payload instanceof Uint8Array || payload instanceof ArrayBuffer) {
+      payload = toUint8Array(payload);
+      if (!finalContentType) {
+        finalContentType = 'application/octet-stream';
+      }
+    } else if (typeof payload === 'string') {
+      if (!finalContentType) {
+        finalContentType = 'text/plain';
+      }
+    } else if (payload && typeof payload === 'object') {
+      payload = JSON.stringify(payload, null, 2);
+      finalContentType = 'application/json';
+    } else {
+      throw new Error('Unsupported payload type for uploadObject');
+    }
+
+    return this.putObject(key, payload, finalContentType ?? 'application/octet-stream');
+  }
+
+  async loadObject(key, fallback = null) {
+    const result = await this.getObject(key, { responseType: 'json' });
+    return result ?? fallback;
+  }
+
+  async deleteObject(key) {
+    const amzDate = new Date().toISOString().replace(/[:-]|\.\d{3}/g, '');
+    const dateStamp = amzDate.slice(0, 8);
+    const payloadHash = await sha256Hex('');
+    const uri = canonicalUri(this.bucket, key);
+
+    const canonicalRequest = [
+      'DELETE',
+      uri,
+      '',
+      canonicalHeaders(this.host, amzDate, payloadHash),
+      signedHeaders,
+      payloadHash,
+    ].join('\n');
+
+    const credentialScope = `${dateStamp}/${this.region}/s3/aws4_request`;
+    const stringToSign = [
+      'AWS4-HMAC-SHA256',
+      amzDate,
+      credentialScope,
+      await sha256Hex(encoder.encode(canonicalRequest)),
+    ].join('\n');
+
+    const signingKey = await getSignatureKey(this.secretKey, dateStamp, this.region, 's3');
+    const signature = bufferToHex(await hmac(signingKey, stringToSign));
+    const authorization = [
+      'AWS4-HMAC-SHA256 Credential=',
+      `${this.accessKey}/${credentialScope}`,
+      `, SignedHeaders=${signedHeaders}`,
+      `, Signature=${signature}`,
+    ].join('');
+
+    const response = await fetch(`${this.baseUrl}${uri}`, {
+      method: 'DELETE',
+      headers: {
+        Host: this.host,
+        'x-amz-content-sha256': payloadHash,
+        'x-amz-date': amzDate,
+        Authorization: authorization,
+      },
+    });
+
+    if (response.status === 404) {
+      return false;
+    }
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Filebase delete failed (${response.status}): ${text}`);
+    }
+
+    return true;
+  }
+
   async saveDocument(docId, encryptedContent, { contentType = 'application/octet-stream' } = {}) {
     const response = await this.putObject(`documents/${docId}.enc`, encryptedContent, contentType);
     return {

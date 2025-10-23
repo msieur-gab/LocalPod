@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Grant Permission - LocalPod</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        line-height: 1.5;
+      }
+
+      body {
+        margin: 0;
+        padding: 0;
+        background: canvas;
+        color: canvastext;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+      }
+
+      .container {
+        max-width: 500px;
+        width: 100%;
+        padding: 2rem;
+      }
+
+      .card {
+        background: color-mix(in srgb, canvas 95%, canvastext 5%);
+        border: 1px solid color-mix(in srgb, canvastext 15%, canvas 85%);
+        border-radius: 1rem;
+        padding: 2rem;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      }
+
+      h1 {
+        font-size: 1.5rem;
+        margin: 0 0 0.5rem;
+      }
+
+      .subtitle {
+        color: color-mix(in srgb, canvastext 60%, canvas 40%);
+        margin-bottom: 2rem;
+      }
+
+      .grant-details {
+        background: color-mix(in srgb, canvas 90%, canvastext 10%);
+        border-radius: 0.5rem;
+        padding: 1rem;
+        margin: 1.5rem 0;
+      }
+
+      .detail-row {
+        margin: 0.75rem 0;
+      }
+
+      .detail-label {
+        font-weight: 600;
+        font-size: 0.85rem;
+        color: color-mix(in srgb, canvastext 70%, canvas 30%);
+        display: block;
+        margin-bottom: 0.25rem;
+      }
+
+      .detail-value {
+        font-family: 'SFMono-Regular', Consolas, monospace;
+        font-size: 0.9rem;
+        overflow-wrap: break-word;
+        background: color-mix(in srgb, canvas 85%, canvastext 15%);
+        padding: 0.5rem;
+        border-radius: 0.25rem;
+      }
+
+      .permissions-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+      }
+
+      .permissions-list li {
+        padding: 0.5rem;
+        margin: 0.25rem 0;
+        background: color-mix(in srgb, canvas 92%, canvastext 8%);
+        border-radius: 0.25rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+
+      .permissions-list li::before {
+        content: '✓';
+        color: #10b981;
+        font-weight: bold;
+      }
+
+      .auth-section {
+        margin: 2rem 0;
+      }
+
+      label {
+        display: block;
+        font-weight: 600;
+        margin: 1rem 0 0.25rem;
+      }
+
+      select,
+      input {
+        width: 100%;
+        padding: 0.6rem;
+        font-size: 0.95rem;
+        border-radius: 0.5rem;
+        border: 1px solid color-mix(in srgb, canvastext 15%, canvas 85%);
+        background: color-mix(in srgb, canvas 95%, canvastext 5%);
+        color: canvastext;
+        box-sizing: border-box;
+      }
+
+      .button-group {
+        display: flex;
+        gap: 0.75rem;
+        margin-top: 1.5rem;
+      }
+
+      button {
+        flex: 1;
+        padding: 0.75rem;
+        border-radius: 0.5rem;
+        border: none;
+        font-weight: 600;
+        font-size: 1rem;
+        cursor: pointer;
+      }
+
+      button.primary {
+        background: color-mix(in srgb, canvastext 85%, canvas 15%);
+        color: color-mix(in srgb, canvas 92%, canvastext 8%);
+      }
+
+      button.primary:hover {
+        background: color-mix(in srgb, canvastext 90%, canvas 10%);
+      }
+
+      button.secondary {
+        background: transparent;
+        border: 1px solid color-mix(in srgb, canvastext 30%, canvas 70%);
+        color: canvastext;
+      }
+
+      button.secondary:hover {
+        background: color-mix(in srgb, canvastext 5%, canvas 95%);
+      }
+
+      button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      .error {
+        color: #d12c2c;
+        background: color-mix(in srgb, #d12c2c 10%, canvas 90%);
+        padding: 0.75rem;
+        border-radius: 0.5rem;
+        margin-top: 1rem;
+        display: none;
+      }
+
+      .success {
+        color: #1f8724;
+        background: color-mix(in srgb, #1f8724 10%, canvas 90%);
+        padding: 0.75rem;
+        border-radius: 0.5rem;
+        margin-top: 1rem;
+        display: none;
+      }
+
+      .status {
+        color: color-mix(in srgb, canvastext 60%, canvas 40%);
+        font-size: 0.9rem;
+        margin-top: 1rem;
+        text-align: center;
+      }
+
+      .warning-box {
+        background: #fff3cd;
+        border: 1px solid #ffc107;
+        color: #856404;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        margin: 1rem 0;
+      }
+
+      .hidden {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="card">
+        <h1>🔐 Grant Permission Request</h1>
+        <p class="subtitle">A service is requesting access to your LocalPod storage</p>
+
+        <div class="grant-details">
+          <div class="detail-row">
+            <span class="detail-label">Service DID</span>
+            <div class="detail-value" id="service-did">Loading...</div>
+          </div>
+
+          <div class="detail-row">
+            <span class="detail-label">Resource Path</span>
+            <div class="detail-value" id="resource-id">Loading...</div>
+          </div>
+
+          <div class="detail-row">
+            <span class="detail-label">Permissions Requested</span>
+            <ul class="permissions-list" id="permissions-list"></ul>
+          </div>
+
+          <div class="detail-row">
+            <span class="detail-label">Expires</span>
+            <div class="detail-value" id="expires-at">Loading...</div>
+          </div>
+        </div>
+
+        <div class="warning-box">
+          ⚠️ This will allow the service to write data to your IPFS storage at the specified path. You can revoke this permission at any time.
+        </div>
+
+        <div class="auth-section" id="auth-section">
+          <label for="username">Select Account</label>
+          <select id="username" required>
+            <option value="">Loading accounts...</option>
+          </select>
+
+          <label for="password">Password</label>
+          <input type="password" id="password" required placeholder="Enter your password" autocomplete="current-password" />
+
+          <div class="button-group">
+            <button type="button" class="primary" id="approve-btn">Approve & Grant</button>
+            <button type="button" class="secondary" id="deny-btn">Deny</button>
+          </div>
+        </div>
+
+        <div id="error" class="error"></div>
+        <div id="success" class="success"></div>
+        <div id="status" class="status"></div>
+      </div>
+    </div>
+
+    <!-- Import Maps -->
+    <script type="importmap">
+      {
+        "imports": {
+          "@localPod/identity-platform": "./sdk/index.js",
+          "dexie": "https://cdn.jsdelivr.net/npm/dexie@3.2.3/+esm",
+          "@noble/curves/ed25519": "https://esm.sh/@noble/curves@1.4.0/ed25519",
+          "@scure/base": "https://cdn.jsdelivr.net/npm/@scure/base@1.1.1/+esm"
+        }
+      }
+    </script>
+
+    <script type="module">
+      import { IdentityPlatform, isValidPublicKey, base58ToBytes } from '@localPod/identity-platform';
+      import { SimpleStorage } from './storage.js';
+      import { config } from './config.js';
+
+      // DOM elements
+      const dom = {
+        serviceDid: document.getElementById('service-did'),
+        resourceId: document.getElementById('resource-id'),
+        permissionsList: document.getElementById('permissions-list'),
+        expiresAt: document.getElementById('expires-at'),
+        authSection: document.getElementById('auth-section'),
+        username: document.getElementById('username'),
+        password: document.getElementById('password'),
+        approveBtn: document.getElementById('approve-btn'),
+        denyBtn: document.getElementById('deny-btn'),
+        error: document.getElementById('error'),
+        success: document.getElementById('success'),
+        status: document.getElementById('status'),
+      };
+
+      let platform = null;
+      let grantRequest = null;
+      let targetService = null;
+
+      const SERVICE_MANIFEST = Array.isArray(config?.services) ? config.services : [];
+      const SERVICE_ENTRY =
+        Array.isArray(SERVICE_MANIFEST) && SERVICE_MANIFEST.length > 0
+          ? SERVICE_MANIFEST.find(service => service.id === 'localpod-notes') ||
+            SERVICE_MANIFEST.find(service => service.slug === 'notes') ||
+            SERVICE_MANIFEST.find(service => service.did) ||
+            SERVICE_MANIFEST[0]
+          : null;
+      const DEFAULT_SERVICE_DID =
+        SERVICE_ENTRY?.did ?? 'did:key:z6MkNotesServiceExamplePlaceholder';
+      const FALLBACK_SERVICE = {
+        id: 'localpod-notes',
+        did: DEFAULT_SERVICE_DID,
+        name: 'LocalPod Notes',
+        requestedRights: ['write', 'read'],
+        resourcePathTemplate: 'ipfs://${publicKey}/notes/*',
+        defaultGrantDurationMs: 365 * 24 * 60 * 60 * 1000,
+        description: 'LocalPod Notes demo service for personal IPFS-backed notes.',
+        encryptionPublicKey: null,
+      };
+      const ACTIVE_SERVICE = {
+        ...FALLBACK_SERVICE,
+        ...(SERVICE_ENTRY || {}),
+        requestedRights:
+          SERVICE_ENTRY?.requestedRights?.length > 0
+            ? SERVICE_ENTRY.requestedRights
+            : FALLBACK_SERVICE.requestedRights,
+        resourcePathTemplate:
+          SERVICE_ENTRY?.resourcePathTemplate ?? FALLBACK_SERVICE.resourcePathTemplate,
+        defaultGrantDurationMs:
+          Number.isFinite(SERVICE_ENTRY?.defaultGrantDurationMs)
+            ? SERVICE_ENTRY.defaultGrantDurationMs
+            : FALLBACK_SERVICE.defaultGrantDurationMs,
+      };
+      const ACTIVE_SERVICE_ENCRYPTION_KEY = coerceEncryptionKey(
+        ACTIVE_SERVICE.encryptionPublicKey ?? ACTIVE_SERVICE.encryptionKey ?? null,
+      );
+      ACTIVE_SERVICE.encryptionPublicKey = ACTIVE_SERVICE_ENCRYPTION_KEY;
+      ACTIVE_SERVICE.requestedRights = normalizeRights(ACTIVE_SERVICE.requestedRights);
+      if (ACTIVE_SERVICE.requestedRights.length === 0) {
+        ACTIVE_SERVICE.requestedRights = normalizeRights(FALLBACK_SERVICE.requestedRights);
+      }
+      const PLATFORM_SERVICE_MANIFEST =
+        Array.isArray(SERVICE_MANIFEST) && SERVICE_MANIFEST.length > 0
+          ? SERVICE_MANIFEST.map(service => {
+              const encryptionKey =
+                service.encryptionPublicKey ?? service.encryptionKey ?? null;
+              return {
+                ...service,
+                requestedRights: normalizeRights(service.requestedRights ?? service.rights ?? []),
+                encryptionPublicKey: coerceEncryptionKey(encryptionKey),
+              };
+            })
+          : [
+              {
+                ...ACTIVE_SERVICE,
+                encryptionPublicKey: ACTIVE_SERVICE.encryptionPublicKey ?? null,
+              },
+            ];
+
+      // Parse grant request from URL
+      function parseGrantRequest() {
+        const params = new URLSearchParams(window.location.search);
+
+        // Also check hash for fallback
+        let challenge = params.get('service_did');
+        if (!challenge && window.location.hash) {
+          const hash = window.location.hash.startsWith('#')
+            ? window.location.hash.slice(1)
+            : window.location.hash;
+          const hashParams = new URLSearchParams(hash);
+
+          return {
+            serviceDid: hashParams.get('service_did'),
+            resourceId: hashParams.get('resource_id'),
+            rights: (hashParams.get('rights') || '').split(',').filter(Boolean),
+            expiresAt: hashParams.get('expires_at'),
+            callbackUrl: hashParams.get('callback_url'),
+            state: hashParams.get('state'),
+          };
+        }
+
+        return {
+          serviceDid: params.get('service_did'),
+          resourceId: params.get('resource_id'),
+          rights: (params.get('rights') || '').split(',').filter(Boolean),
+          expiresAt: params.get('expires_at'),
+          callbackUrl: params.get('callback_url'),
+          state: params.get('state'),
+        };
+      }
+
+      // Initialize
+      async function init() {
+        try {
+          // Parse grant request
+          grantRequest = parseGrantRequest();
+
+          if (!grantRequest.serviceDid || !grantRequest.resourceId) {
+            showError('Invalid grant request. Missing required parameters.');
+            dom.authSection.style.display = 'none';
+            return;
+          }
+
+          const normalizedRights = normalizeRights(
+            grantRequest.rights.length > 0 ? grantRequest.rights : ACTIVE_SERVICE.requestedRights,
+          );
+          if (normalizedRights.length === 0) {
+            showError('Grant request is missing capability rights.');
+            dom.authSection.style.display = 'none';
+            return;
+          }
+
+          // Display grant details
+          dom.serviceDid.textContent = grantRequest.serviceDid;
+          dom.resourceId.textContent = grantRequest.resourceId;
+          dom.permissionsList.innerHTML = normalizedRights
+            .map(right => `<li>${right}</li>`)
+            .join('');
+
+          if (grantRequest.expiresAt) {
+            const expiryDate = new Date(grantRequest.expiresAt);
+            dom.expiresAt.textContent = expiryDate.toLocaleString();
+          } else {
+            dom.expiresAt.textContent = formatDuration(ACTIVE_SERVICE.defaultGrantDurationMs);
+          }
+
+          // Initialize platform
+          let remoteStorage = null;
+          if (config?.filebase?.accessKey && config.filebase.secretKey && config.filebase.bucket) {
+            try {
+              remoteStorage = new SimpleStorage(config.filebase);
+            } catch (error) {
+              console.warn('Failed to initialize remote storage:', error);
+            }
+          }
+
+          platform = new IdentityPlatform({
+            remoteStorage,
+            serviceManifest: PLATFORM_SERVICE_MANIFEST,
+          });
+          await platform.init();
+
+          targetService = sanitizeService(platform.getServiceByDid(grantRequest.serviceDid));
+          if (!targetService && grantRequest.serviceDid === ACTIVE_SERVICE.did) {
+            try {
+              targetService = sanitizeService(platform.registerService(ACTIVE_SERVICE));
+            } catch (error) {
+              console.warn('Failed to register fallback service manifest:', error);
+            }
+          }
+
+          if (targetService?.name && targetService.name !== grantRequest.serviceDid) {
+            dom.serviceDid.innerHTML = `
+              <div style="font-weight: 600;">${targetService.name}</div>
+              <code style="display:block;margin-top:0.5rem;">${targetService.did}</code>
+            `;
+          }
+
+          if (targetService?.requestedRights?.length && grantRequest.rights.length === 0) {
+            dom.permissionsList.innerHTML = targetService.requestedRights
+              .map(right => `<li>${right}</li>`)
+              .join('');
+          }
+
+          if (!grantRequest.expiresAt && targetService?.defaultGrantDurationMs) {
+            dom.expiresAt.textContent = formatDuration(targetService.defaultGrantDurationMs);
+          }
+
+          dom.status.textContent = targetService?.description ?? '';
+
+          if (targetService && !targetService.encryptionPublicKey) {
+            dom.status.textContent += `${dom.status.textContent ? ' ' : ''}⚠️ Encryption key not configured. Update config.js before approving.`;
+          }
+
+          // Load accounts
+          const accounts = await platform.listAccounts();
+          if (accounts.length === 0) {
+            showError('No accounts found. Please create an account first in the demo app.');
+            dom.authSection.style.display = 'none';
+            return;
+          }
+
+          // Populate account dropdown
+          dom.username.innerHTML = '<option value="">Select account...</option>';
+          accounts.forEach(account => {
+            const option = document.createElement('option');
+            option.value = account.username;
+            option.textContent = account.username;
+            dom.username.appendChild(option);
+          });
+
+        } catch (error) {
+          console.error('Initialization failed:', error);
+          showError('Failed to initialize: ' + error.message);
+          dom.authSection.style.display = 'none';
+        }
+      }
+
+      // Approve grant
+      dom.approveBtn.addEventListener('click', async () => {
+        const username = dom.username.value;
+        const password = dom.password.value;
+
+        if (!username || !password) {
+          showError('Please select an account and enter your password.');
+          return;
+        }
+
+        try {
+          dom.approveBtn.disabled = true;
+          dom.denyBtn.disabled = true;
+          dom.status.textContent = 'Unlocking account...';
+
+          // Unlock account
+          const identity = await platform.unlock({ username, password });
+
+          dom.status.textContent = 'Issuing capability grant...';
+
+          const serviceDetails =
+            targetService ?? sanitizeService(platform.getServiceByDid(grantRequest.serviceDid));
+          if (!serviceDetails || !serviceDetails.encryptionPublicKey) {
+            showError('Service encryption public key is missing. Update config.js before approving.');
+            dom.status.textContent = '';
+            dom.approveBtn.disabled = false;
+            dom.denyBtn.disabled = false;
+            return;
+          }
+
+          const grantRights = normalizeRights(
+            grantRequest.rights.length > 0 ? grantRequest.rights : serviceDetails.requestedRights,
+          );
+          if (grantRights.length === 0) {
+            showError('Capability rights are missing. Cannot issue grant.');
+            dom.status.textContent = '';
+            dom.approveBtn.disabled = false;
+            dom.denyBtn.disabled = false;
+            return;
+          }
+
+          // Issue grant using SDK
+          const grant = await platform.issueCapabilityGrant({
+            subjectDid: grantRequest.serviceDid,
+            subjectEncryptionPublicKey: serviceDetails.encryptionPublicKey,
+            resourceId: grantRequest.resourceId,
+            rights: grantRights,
+            expiresAt: grantRequest.expiresAt,
+            metadata: {
+              issuedAt: new Date().toISOString(),
+              issuer: identity.did,
+            },
+          });
+
+          showSuccess('Grant issued successfully! Redirecting...');
+          dom.status.textContent = '';
+
+          // Send grant back to service
+          if (window.opener) {
+            // Popup mode
+            window.opener.postMessage(
+              {
+                type: 'grant_issued',
+                grant,
+                state: grantRequest.state,
+              },
+              grantRequest.callbackUrl
+            );
+            setTimeout(() => window.close(), 1000);
+          } else {
+            // Redirect mode
+            setTimeout(() => {
+              window.location.href = `${grantRequest.callbackUrl}#grant=${encodeURIComponent(JSON.stringify(grant))}`;
+            }, 1000);
+          }
+
+        } catch (error) {
+          console.error('Grant issuance failed:', error);
+          showError('Failed to issue grant: ' + error.message);
+          dom.approveBtn.disabled = false;
+          dom.denyBtn.disabled = false;
+          dom.status.textContent = '';
+        }
+      });
+
+      // Deny grant
+      dom.denyBtn.addEventListener('click', () => {
+        if (window.opener) {
+          window.opener.postMessage(
+            {
+              type: 'grant_denied',
+              state: grantRequest.state,
+            },
+            grantRequest.callbackUrl
+          );
+          window.close();
+        } else {
+          window.location.href = `${grantRequest.callbackUrl}#grant=denied`;
+        }
+      });
+
+      // Helper functions
+      function normalizeRights(rights) {
+        if (!rights) return [];
+        const list = Array.isArray(rights) ? rights : String(rights).split(',');
+        return Array.from(
+          new Set(
+            list
+              .map(item => String(item || '').trim())
+              .filter(Boolean),
+          ),
+        );
+      }
+
+      function coerceEncryptionKey(value) {
+        if (!value) return null;
+        const stringValue = String(value).trim();
+        if (!stringValue || stringValue.toUpperCase().includes('REPLACE')) {
+          return null;
+        }
+        try {
+          const bytes = base58ToBytes(stringValue);
+          if (!isValidPublicKey(bytes)) {
+            return null;
+          }
+          return stringValue;
+        } catch {
+          return null;
+        }
+      }
+
+      function sanitizeService(entry) {
+        if (!entry) return null;
+        return {
+          ...entry,
+          encryptionPublicKey: coerceEncryptionKey(entry.encryptionPublicKey ?? entry.encryptionKey ?? null),
+          requestedRights: normalizeRights(entry.requestedRights ?? entry.rights ?? []),
+        };
+      }
+
+      function formatDuration(durationMs) {
+        if (!Number.isFinite(durationMs) || durationMs <= 0) {
+          return 'Until revoked';
+        }
+        const days = Math.round(durationMs / (24 * 60 * 60 * 1000));
+        if (days >= 365) {
+          const years = (days / 365).toFixed(1).replace(/\.0$/, '');
+          return `${years} year${years === '1' ? '' : 's'} from approval`;
+        }
+        if (days >= 30) {
+          const months = (days / 30).toFixed(1).replace(/\.0$/, '');
+          return `${months} month${months === '1' ? '' : 's'} from approval`;
+        }
+        if (days > 1) {
+          return `${days} days from approval`;
+        }
+        const hours = Math.round(durationMs / (60 * 60 * 1000));
+        if (hours > 1) {
+          return `${hours} hours from approval`;
+        }
+        return 'Within the next hour';
+      }
+
+      function showError(message) {
+        dom.error.textContent = message;
+        dom.error.style.display = 'block';
+        dom.success.style.display = 'none';
+      }
+
+      function showSuccess(message) {
+        dom.success.textContent = message;
+        dom.success.style.display = 'block';
+        dom.error.style.display = 'none';
+      }
+
+      // Start
+      init();
+    </script>
+  </body>
+</html>

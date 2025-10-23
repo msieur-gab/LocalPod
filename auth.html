@@ -318,7 +318,7 @@
 
             // Redirect back to callback with payload
             setTimeout(() => {
-              window.location.href = challengeParams.callbackUrl + '#' + encodeURIComponent(JSON.stringify(result.payload));
+              window.location.href = challengeParams.callbackUrl + '#auth=' + encodeURIComponent(JSON.stringify(result.payload));
             }, 1000);
           } else if (result.submitted && result.response) {
             showError(`Service returned status ${result.response.status}. Please try again.`);
@@ -328,7 +328,7 @@
             showSuccess('Challenge signed! Redirecting to callback...');
             dom.status.textContent = '';
             setTimeout(() => {
-              window.location.href = challengeParams.callbackUrl + '#' + encodeURIComponent(JSON.stringify(result.payload));
+              window.location.href = challengeParams.callbackUrl + '#auth=' + encodeURIComponent(JSON.stringify(result.payload));
             }, 1000);
           } else {
             // No callback URL, just show payload

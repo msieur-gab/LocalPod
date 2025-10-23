@@ -735,6 +735,10 @@ index.json format:
 4. Deploy to GitHub Pages
 5. (Optional) Add API for public note discovery
 
+### Generating a Service Manifest
+
+Use the helper at `tools/service-manifest-generator.html` to mint a service DID plus signing/encryption keys. Copy the manifest snippet into `config.js` before testing the grant flow. The notes UI also exposes a “Revoke Permission” button so users can drop a grant without restarting the app.
+
 ---
 
 ## Benefits

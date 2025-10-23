@@ -1,0 +1,1627 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LocalPod Notes</title>
+  <style>
+    :root {
+      --primary: #1e88e5;
+      --bg: #fafafa;
+      --card-bg: #fff;
+      --border: #e0e0e0;
+      --text: #202124;
+      --text-secondary: #5f6368;
+      --danger: #d32f2f;
+      --warning: #f57c00;
+      --success: #388e3c;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Google Sans', 'Roboto', Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    /* Header */
+    .header {
+      background: var(--card-bg);
+      border-bottom: 1px solid var(--border);
+      padding: 1rem 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    .logo {
+      font-size: 1.5rem;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .user-info {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      font-size: 0.9rem;
+      color: var(--text-secondary);
+    }
+
+    .user-badge {
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+      text-align: right;
+    }
+
+    .user-badge strong {
+      color: var(--text);
+      font-weight: 600;
+      font-size: 0.95rem;
+    }
+
+    /* Login Screen */
+    .login-screen {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 80vh;
+      flex-direction: column;
+      gap: 2rem;
+    }
+
+    .login-card {
+      background: var(--card-bg);
+      padding: 3rem;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      text-align: center;
+      max-width: 400px;
+    }
+
+    .login-card h1 {
+      margin-bottom: 1rem;
+    }
+
+    .login-card p {
+      margin: 1rem 0;
+      color: var(--text-secondary);
+    }
+
+    /* Grant Section */
+    .grant-section {
+      max-width: 600px;
+      margin: 2rem auto;
+      padding: 0 2rem;
+    }
+
+    .grant-card {
+      background: #fff3cd;
+      border: 1px solid #ffc107;
+      padding: 1.5rem;
+      border-radius: 8px;
+      text-align: center;
+    }
+
+    .grant-card.granted {
+      background: #d4edda;
+      border-color: #28a745;
+    }
+
+    .grant-card h2 {
+      margin-bottom: 1rem;
+      font-size: 1.2rem;
+    }
+
+    .grant-card p {
+      margin-bottom: 1rem;
+      color: var(--text-secondary);
+    }
+
+    .grant-details {
+      font-size: 0.9rem;
+      color: var(--text-secondary);
+      background: rgba(0, 0, 0, 0.04);
+      border-radius: 6px;
+      padding: 0.75rem;
+      text-align: left;
+    }
+
+    .grant-details strong {
+      display: block;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 0.25rem;
+    }
+
+    .grant-actions {
+      display: flex;
+      justify-content: center;
+      gap: 0.75rem;
+      margin-top: 1.25rem;
+    }
+
+    .helper-text {
+      font-size: 0.85rem;
+      margin-top: 1.5rem;
+      color: var(--text-secondary);
+    }
+
+    /* New Note Form */
+    .new-note-container {
+      max-width: 600px;
+      margin: 2rem auto;
+      padding: 0 2rem;
+    }
+
+    .new-note-form {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      transition: box-shadow 0.2s;
+    }
+
+    .new-note-form:focus-within {
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    }
+
+    .new-note-form input,
+    .new-note-form textarea {
+      width: 100%;
+      border: none;
+      padding: 0.5rem;
+      font-family: inherit;
+      font-size: 1rem;
+      resize: none;
+      outline: none;
+    }
+
+    .new-note-form input {
+      font-weight: 500;
+      margin-bottom: 0.5rem;
+    }
+
+    .new-note-form textarea {
+      min-height: 100px;
+    }
+
+    .new-note-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 0.5rem;
+      margin-top: 1rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--border);
+    }
+
+    /* Notes Grid */
+    .notes-container {
+      max-width: 1200px;
+      margin: 2rem auto;
+      padding: 0 2rem;
+    }
+
+    .notes-header {
+      margin-bottom: 1rem;
+      color: var(--text-secondary);
+      font-size: 0.9rem;
+    }
+
+    .notes-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 1rem;
+      margin-bottom: 2rem;
+    }
+
+    .note-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
+      cursor: pointer;
+      transition: box-shadow 0.2s;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .note-card:hover {
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    }
+
+    .note-title {
+      font-weight: 500;
+      margin-bottom: 0.5rem;
+      word-break: break-word;
+    }
+
+    .note-content {
+      color: var(--text-secondary);
+      font-size: 0.9rem;
+      line-height: 1.4;
+      max-height: 150px;
+      overflow: hidden;
+      word-break: break-word;
+      flex: 1;
+    }
+
+    .note-footer {
+      margin-top: 1rem;
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .empty-state {
+      grid-column: 1/-1;
+      text-align: center;
+      padding: 3rem;
+      color: var(--text-secondary);
+    }
+
+    /* Buttons */
+    button {
+      background: var(--primary);
+      color: white;
+      border: none;
+      padding: 0.75rem 1.5rem;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 1rem;
+      font-weight: 500;
+      transition: background 0.2s;
+    }
+
+    button:hover {
+      background: #1976d2;
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    button.secondary {
+      background: transparent;
+      color: var(--primary);
+      border: 1px solid var(--primary);
+    }
+
+    button.secondary:hover {
+      background: rgba(30, 136, 229, 0.08);
+    }
+
+    button.danger {
+      background: var(--danger);
+    }
+
+    button.danger:hover {
+      background: #c62828;
+    }
+
+    .icon-btn {
+      background: none;
+      color: var(--text-secondary);
+      padding: 0.5rem;
+      min-width: auto;
+      font-size: 1.2rem;
+    }
+
+    .icon-btn:hover {
+      background: rgba(0,0,0,0.05);
+      color: var(--text);
+    }
+
+    /* Loader */
+    .loader {
+      border: 3px solid #f3f3f3;
+      border-top: 3px solid var(--primary);
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+      margin: 2rem auto;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    /* Profile Card */
+    .profile-section {
+      max-width: 600px;
+      margin: 2rem auto;
+      padding: 0 2rem;
+    }
+
+    .profile-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.5rem;
+      display: flex;
+      gap: 1.5rem;
+      align-items: center;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+
+    .profile-avatar {
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--primary), #1565c0);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 2rem;
+      font-weight: 600;
+      color: white;
+      flex-shrink: 0;
+    }
+
+    .profile-avatar img {
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      object-fit: cover;
+    }
+
+    .profile-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .profile-name {
+      font-size: 1.3rem;
+      font-weight: 600;
+      margin-bottom: 0.25rem;
+    }
+
+    .profile-username {
+      color: var(--text-secondary);
+      font-size: 0.95rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .profile-bio {
+      margin: 0.75rem 0;
+      line-height: 1.4;
+    }
+
+    .profile-detail {
+      font-size: 0.85rem;
+      margin: 0.35rem 0;
+      color: var(--text-secondary);
+      word-break: break-all;
+    }
+
+    .profile-detail strong {
+      font-weight: 600;
+      color: var(--text);
+      display: inline-block;
+      min-width: 90px;
+    }
+
+    /* Utility */
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <!-- Header -->
+  <header class="header">
+    <div class="logo">
+      <span>📝</span>
+      <span>LocalPod Notes</span>
+    </div>
+    <div class="user-info">
+      <div id="user-badge" class="user-badge hidden">
+        <strong id="user-name"></strong>
+        <span id="user-did"></span>
+      </div>
+      <button id="header-revoke-btn" class="secondary hidden">Revoke Access</button>
+      <button id="logout-btn" class="secondary hidden">Logout</button>
+    </div>
+  </header>
+
+  <!-- Login Screen -->
+  <div id="login-screen" class="login-screen">
+    <div class="login-card">
+      <h1>Welcome to LocalPod Notes</h1>
+      <p>
+        Your notes, stored in your own IPFS.<br/>
+        Fully decentralized. Fully yours.
+      </p>
+
+      <button id="login-btn">Login with LocalPod</button>
+      <p class="helper-text">
+        You will be redirected to your LocalPod vault to authenticate. Once you return,
+        grant storage permission so notes can sync to your IPFS bucket.
+      </p>
+    </div>
+  </div>
+
+  <!-- Grant Section -->
+  <div id="grant-section" class="grant-section hidden">
+    <div id="grant-card" class="grant-card">
+      <h2 id="grant-title">Grant Storage Permission</h2>
+      <p id="grant-description">
+        Allow LocalPod Notes to save and read notes from your IPFS storage.
+      </p>
+      <div class="grant-details">
+        <strong>Resource</strong>
+        <div id="grant-resource">Sign in to see requested path.</div>
+        <strong>Rights</strong>
+        <div id="grant-rights">write, read</div>
+        <strong>Expires</strong>
+        <div id="grant-expires">12 months from approval</div>
+      </div>
+      <div id="grant-status-message" class="helper-text" style="text-align: center;"></div>
+      <div class="grant-actions">
+        <button id="request-grant-btn">Grant Permission</button>
+        <button id="revoke-grant-btn" class="secondary hidden">Revoke Permission</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main App -->
+  <div id="app" class="hidden">
+    <!-- User Profile Card -->
+    <div class="profile-section">
+      <div class="profile-card">
+        <div class="profile-avatar" id="profile-avatar">
+          <span id="profile-avatar-text"></span>
+        </div>
+        <div class="profile-info">
+          <div class="profile-name" id="profile-name">User</div>
+          <div class="profile-username" id="profile-username"></div>
+          <div class="profile-bio" id="profile-bio"></div>
+          <div class="profile-detail">
+            <strong>DID:</strong>
+            <span id="profile-did"></span>
+          </div>
+          <div class="profile-detail">
+            <strong>Public Key:</strong>
+            <span id="profile-public-key"></span>
+          </div>
+          <div class="profile-detail" id="profile-encryption-key-container">
+            <strong>Encryption Key:</strong>
+            <span id="profile-encryption-key"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- New Note Form -->
+    <div class="new-note-container">
+      <div class="new-note-form">
+        <input type="text" id="note-title" placeholder="Title" />
+        <textarea id="note-content" placeholder="Take a note..."></textarea>
+        <div class="new-note-actions">
+          <button id="save-note-btn">Save to My IPFS</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Notes Grid -->
+    <div class="notes-container">
+      <div class="notes-header">
+        <span id="notes-count">0 notes</span>
+      </div>
+      <div id="notes-grid" class="notes-grid">
+        <!-- Notes populated dynamically -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Loading -->
+  <div id="loader" class="loader hidden"></div>
+
+  <!-- Import Maps -->
+  <script type="importmap">
+    {
+      "imports": {
+        "@localPod/identity-platform": "./sdk/index.js",
+        "dexie": "https://cdn.jsdelivr.net/npm/dexie@3.2.3/+esm",
+        "@noble/curves/ed25519": "https://esm.sh/@noble/curves@1.4.0/ed25519",
+        "@scure/base": "https://cdn.jsdelivr.net/npm/@scure/base@1.1.1/+esm"
+      }
+    }
+  </script>
+
+  <script type="module">
+    import { IdentityPlatform, isValidPublicKey, base58ToBytes } from '@localPod/identity-platform';
+    import { SimpleStorage } from './storage.js';
+    import { config } from './config.js';
+
+    // Configuration
+    const SERVICE_MANIFEST = Array.isArray(config?.services) ? config.services : [];
+    const SERVICE_ENTRY =
+      Array.isArray(SERVICE_MANIFEST) && SERVICE_MANIFEST.length > 0
+        ? SERVICE_MANIFEST.find(service => service.id === 'localpod-notes') ||
+          SERVICE_MANIFEST.find(service => service.slug === 'notes') ||
+          SERVICE_MANIFEST.find(service => service.did) ||
+          SERVICE_MANIFEST[0]
+        : null;
+    const DEFAULT_SERVICE_DID =
+      SERVICE_ENTRY?.did ?? 'did:key:z6MkNotesServiceExamplePlaceholder';
+    const FALLBACK_SERVICE = {
+      id: 'localpod-notes',
+      did: DEFAULT_SERVICE_DID,
+      name: 'LocalPod Notes',
+      requestedRights: ['write', 'read'],
+      resourcePathTemplate: 'ipfs://${publicKey}/notes/*',
+      defaultGrantDurationMs: 365 * 24 * 60 * 60 * 1000,
+      description: 'LocalPod Notes demo service for personal IPFS-backed notes.',
+      encryptionPublicKey: null,
+    };
+    const ACTIVE_SERVICE = {
+      ...FALLBACK_SERVICE,
+      ...(SERVICE_ENTRY || {}),
+      resourcePathTemplate:
+        SERVICE_ENTRY?.resourcePathTemplate ?? FALLBACK_SERVICE.resourcePathTemplate,
+      defaultGrantDurationMs:
+        Number.isFinite(SERVICE_ENTRY?.defaultGrantDurationMs)
+          ? SERVICE_ENTRY.defaultGrantDurationMs
+          : FALLBACK_SERVICE.defaultGrantDurationMs,
+    };
+    ACTIVE_SERVICE.encryptionPublicKey = coerceEncryptionKey(
+      ACTIVE_SERVICE.encryptionPublicKey ?? ACTIVE_SERVICE.encryptionKey ?? null,
+    );
+    const activeEncryptionKey = ACTIVE_SERVICE.encryptionPublicKey;
+    const PLATFORM_SERVICE_MANIFEST =
+      Array.isArray(SERVICE_MANIFEST) && SERVICE_MANIFEST.length > 0
+        ? SERVICE_MANIFEST.map(service => {
+            const encryptionKey =
+              service.encryptionPublicKey ?? service.encryptionKey ?? null;
+            return {
+              ...service,
+              requestedRights: normalizeRights(service.requestedRights ?? service.rights ?? []),
+              encryptionPublicKey: coerceEncryptionKey(encryptionKey),
+            };
+          })
+        : [
+            {
+              ...ACTIVE_SERVICE,
+              requestedRights: normalizeRights(FALLBACK_SERVICE.requestedRights),
+              encryptionPublicKey: activeEncryptionKey,
+            },
+          ];
+    const SERVICE_DID = ACTIVE_SERVICE.did;
+    const SERVICE_NAME = ACTIVE_SERVICE.name ?? FALLBACK_SERVICE.name;
+    const REQUESTED_RIGHTS = (() => {
+      const rightsSource =
+        SERVICE_ENTRY?.requestedRights?.length > 0
+          ? SERVICE_ENTRY.requestedRights
+          : FALLBACK_SERVICE.requestedRights;
+      const normalized = normalizeRights(rightsSource);
+      return normalized.length > 0 ? normalized : normalizeRights(FALLBACK_SERVICE.requestedRights);
+    })();
+    const GRANT_RIGHTS = REQUESTED_RIGHTS.join(',');
+    const DEFAULT_GRANT_DURATION_MS = ACTIVE_SERVICE.defaultGrantDurationMs;
+    const SERVICE_DESCRIPTION = ACTIVE_SERVICE.description ?? null;
+    const SERVICE_RESOURCE_TEMPLATE = ACTIVE_SERVICE.resourcePathTemplate;
+    const STORAGE_KEYS = {
+      user: 'localpod_notes_user',
+      grant: 'localpod_notes_grant',
+      authChallenge: 'auth_challenge',
+      grantState: 'grant_request_state',
+    };
+
+    // State
+    let platform = null;
+    let currentUser = null;
+    let currentGrant = null;
+    let serviceInfo = null;
+    let notes = [];
+
+    // DOM elements
+    const dom = {
+      loginScreen: document.getElementById('login-screen'),
+      grantSection: document.getElementById('grant-section'),
+      grantCard: document.getElementById('grant-card'),
+      grantTitle: document.getElementById('grant-title'),
+      grantDescription: document.getElementById('grant-description'),
+      grantResource: document.getElementById('grant-resource'),
+      grantRights: document.getElementById('grant-rights'),
+      grantExpires: document.getElementById('grant-expires'),
+      grantStatus: document.getElementById('grant-status-message'),
+      app: document.getElementById('app'),
+      loginBtn: document.getElementById('login-btn'),
+      logoutBtn: document.getElementById('logout-btn'),
+      headerRevokeBtn: document.getElementById('header-revoke-btn'),
+      requestGrantBtn: document.getElementById('request-grant-btn'),
+      saveNoteBtn: document.getElementById('save-note-btn'),
+      revokeGrantBtn: document.getElementById('revoke-grant-btn'),
+      userBadge: document.getElementById('user-badge'),
+      userName: document.getElementById('user-name'),
+      userDidDisplay: document.getElementById('user-did'),
+      profileAvatar: document.getElementById('profile-avatar'),
+      profileAvatarText: document.getElementById('profile-avatar-text'),
+      profileName: document.getElementById('profile-name'),
+      profileUsername: document.getElementById('profile-username'),
+      profileBio: document.getElementById('profile-bio'),
+      profileDid: document.getElementById('profile-did'),
+      profilePublicKey: document.getElementById('profile-public-key'),
+      profileEncryptionKey: document.getElementById('profile-encryption-key'),
+      profileEncryptionKeyContainer: document.getElementById('profile-encryption-key-container'),
+      noteTitle: document.getElementById('note-title'),
+      noteContent: document.getElementById('note-content'),
+      notesGrid: document.getElementById('notes-grid'),
+      notesCount: document.getElementById('notes-count'),
+      loader: document.getElementById('loader'),
+    };
+
+    if (dom.grantTitle) {
+      dom.grantTitle.textContent = `Allow ${SERVICE_NAME} to sync your notes`;
+    }
+    if (dom.grantDescription) {
+      dom.grantDescription.textContent =
+        SERVICE_DESCRIPTION ??
+        'Allow LocalPod Notes to save and read encrypted notes from your personal IPFS storage.';
+    }
+    if (dom.grantRights) {
+      dom.grantRights.textContent = REQUESTED_RIGHTS.join(', ');
+    }
+    if (dom.grantExpires) {
+      dom.grantExpires.textContent = formatDuration(DEFAULT_GRANT_DURATION_MS);
+    }
+
+    // Initialize
+    async function init() {
+      // Check if returning from auth
+      const hash = window.location.hash.slice(1);
+      if (hash) {
+        const params = new URLSearchParams(hash);
+
+        // Handle auth callback
+        const authData = params.get('auth');
+        if (authData) {
+          try {
+            const payload = JSON.parse(decodeURIComponent(authData));
+            await handleAuthCallback(payload);
+          } catch (e) {
+            console.error('Failed to parse auth data:', e);
+          }
+        }
+
+        // Handle grant callback (redirect flow)
+        const grantData = params.get('grant');
+        if (grantData) {
+          try {
+            if (grantData === 'denied') {
+              handleGrantDenied();
+            } else {
+              const payload = JSON.parse(decodeURIComponent(grantData));
+              await handleGrantIssued(payload);
+            }
+          } catch (error) {
+            console.error('Failed to process grant data:', error);
+            alert('Failed to process grant response. Please try again.');
+          }
+        }
+
+        window.location.hash = '';
+        if (authData) {
+          return;
+        }
+      }
+
+      // Check for existing session
+      const savedUser = localStorage.getItem(STORAGE_KEYS.user);
+      const savedGrant = localStorage.getItem(STORAGE_KEYS.grant);
+
+      if (savedUser) {
+        currentUser = JSON.parse(savedUser);
+
+        // Load fresh profile data from storage
+        await loadUserProfile();
+
+        if (savedGrant) {
+          try {
+            const grant = JSON.parse(savedGrant);
+            if (!isGrantExpired(grant)) {
+              currentGrant = grant;
+            } else {
+              localStorage.removeItem(STORAGE_KEYS.grant);
+            }
+          } catch (error) {
+            console.warn('Stored grant invalid, clearing:', error);
+            localStorage.removeItem(STORAGE_KEYS.grant);
+          }
+        }
+
+        if (currentGrant) {
+          await showApp();
+        } else {
+          showGrantRequest();
+        }
+      } else {
+        showLogin();
+      }
+    }
+
+    // Show login screen
+    function showLogin() {
+      dom.loginScreen.classList.remove('hidden');
+      dom.grantSection.classList.add('hidden');
+      dom.app.classList.add('hidden');
+      if (dom.userBadge) {
+        dom.userBadge.classList.add('hidden');
+      }
+      if (dom.userName) {
+        dom.userName.textContent = '';
+      }
+      dom.userDidDisplay.textContent = '';
+      dom.logoutBtn.classList.add('hidden');
+      if (dom.headerRevokeBtn) {
+        dom.headerRevokeBtn.classList.add('hidden');
+      }
+      if (dom.grantCard) {
+        dom.grantCard.classList.remove('granted');
+      }
+      if (dom.grantStatus) {
+        dom.grantStatus.textContent = '';
+      }
+      renderUserBadge();
+    }
+
+    // Show main app
+    async function showApp() {
+      if (!currentUser) {
+        showLogin();
+        return;
+      }
+      if (!currentGrant || isGrantExpired(currentGrant)) {
+        showGrantRequest();
+        return;
+      }
+
+      dom.loginScreen.classList.add('hidden');
+      dom.grantSection.classList.add('hidden');
+      dom.app.classList.remove('hidden');
+      renderUserBadge();
+      dom.logoutBtn.classList.remove('hidden');
+      if (dom.headerRevokeBtn) {
+        dom.headerRevokeBtn.classList.remove('hidden');
+      }
+
+      // Initialize platform with user's storage
+      if (!platform) {
+        try {
+          let remoteStorage = null;
+          if (config?.filebase?.accessKey && config.filebase.secretKey && config.filebase.bucket) {
+            remoteStorage = new SimpleStorage(config.filebase);
+          }
+
+          platform = new IdentityPlatform({
+            remoteStorage,
+            serviceManifest: PLATFORM_SERVICE_MANIFEST,
+          });
+          await platform.init();
+        } catch (error) {
+          console.error('Failed to initialize platform:', error);
+          alert('Failed to initialize. Please check your config.js');
+          return;
+        }
+      }
+
+      serviceInfo = platform.getServiceByDid(SERVICE_DID) ?? null;
+      if (serviceInfo) {
+        serviceInfo = {
+          ...serviceInfo,
+          encryptionPublicKey: coerceEncryptionKey(
+            serviceInfo.encryptionPublicKey ?? serviceInfo.encryptionKey ?? null,
+          ),
+          requestedRights: normalizeRights(serviceInfo.requestedRights ?? serviceInfo.rights ?? []),
+        };
+      }
+      if (!serviceInfo && SERVICE_DID === FALLBACK_SERVICE.did) {
+        try {
+          serviceInfo = platform.registerService({
+            ...ACTIVE_SERVICE,
+            requestedRights: REQUESTED_RIGHTS,
+          });
+        } catch (error) {
+          console.warn('Failed to register fallback service metadata:', error);
+        }
+      }
+
+      await loadNotes();
+    }
+
+    function showGrantRequest() {
+      if (!currentUser) {
+        showLogin();
+        return;
+      }
+
+      dom.loginScreen.classList.add('hidden');
+      dom.app.classList.add('hidden');
+      dom.grantSection.classList.remove('hidden');
+      renderUserBadge();
+      dom.logoutBtn.classList.remove('hidden');
+      if (dom.headerRevokeBtn) {
+        dom.headerRevokeBtn.classList.add('hidden');
+      }
+      updateGrantUI();
+    }
+
+    // Login handler
+    if (dom.loginBtn) {
+      dom.loginBtn.addEventListener('click', () => {
+        const challenge = generateChallenge();
+        const callbackUrl = window.location.href.split('#')[0];
+
+        sessionStorage.setItem(STORAGE_KEYS.authChallenge, challenge);
+
+        const params = new URLSearchParams({
+          challenge,
+          service_did: SERVICE_DID,
+          callback_url: callbackUrl,
+        });
+
+        const authUrl = new URL('./auth.html', window.location.href);
+        authUrl.search = params.toString();
+        window.location.href = authUrl.toString();
+      });
+    }
+
+    if (dom.requestGrantBtn) {
+      dom.requestGrantBtn.addEventListener('click', requestGrantPermission);
+    }
+
+    // Revoke handler function (shared by both buttons)
+    const handleRevoke = () => {
+      if (!currentGrant) {
+        alert('No active permission to revoke.');
+        return;
+      }
+      if (!confirm('Revoke LocalPod Notes access to your storage? You can grant it again later.')) {
+        return;
+      }
+
+      try {
+        // Remove grant token
+        localStorage.removeItem(STORAGE_KEYS.grant);
+        currentGrant = null;
+
+        // IMPORTANT: Clear platform instance and storage access
+        // This prevents the service from continuing to use storage credentials
+        platform = null;
+        serviceInfo = null;
+        notes = [];
+
+        // Clear note form
+        if (dom.noteTitle) dom.noteTitle.value = '';
+        if (dom.noteContent) dom.noteContent.value = '';
+
+        updateGrantUI();
+        showGrantRequest();
+        alert('Permission revoked. The service no longer has access to your storage.');
+      } catch (error) {
+        console.error('Failed to revoke grant locally:', error);
+        alert('Failed to revoke permission locally. Please try again.');
+      }
+    };
+
+    if (dom.revokeGrantBtn) {
+      dom.revokeGrantBtn.addEventListener('click', handleRevoke);
+    }
+
+    if (dom.headerRevokeBtn) {
+      dom.headerRevokeBtn.addEventListener('click', handleRevoke);
+    }
+
+    window.addEventListener('message', async (event) => {
+      if (!isAllowedGrantOrigin(event.origin)) return;
+      if (!event.data || typeof event.data !== 'object') return;
+
+      if (event.data.type === 'grant_issued') {
+        try {
+          await handleGrantIssued(event.data.grant, event.data.state ?? null);
+        } catch (error) {
+          console.error('Failed to process grant message:', error);
+          alert('Failed to process grant response. Please try again.');
+        }
+      } else if (event.data.type === 'grant_denied') {
+        handleGrantDenied();
+      }
+    });
+
+    // Handle auth callback
+    async function handleAuthCallback(payload) {
+      const storedChallenge = sessionStorage.getItem(STORAGE_KEYS.authChallenge);
+
+      if (!payload || payload.challenge !== storedChallenge) {
+        alert('Invalid authentication response. Please try again.');
+        showLogin();
+        return;
+      }
+
+      sessionStorage.removeItem(STORAGE_KEYS.authChallenge);
+      sessionStorage.removeItem(STORAGE_KEYS.grantState);
+
+      // Debug: Log the full payload to see what data we're receiving
+      console.log('Auth payload received:', payload);
+      console.log('Profile data:', payload.profile);
+
+      // Extract profile data from payload
+      const profile = payload.profile || {};
+
+      currentUser = {
+        did: payload.did,
+        publicKey: payload.publicKey,
+        encryptionPublicKey: payload.encryptionPublicKey,
+        displayName: profile.displayName ?? payload.displayName ?? payload.username ?? 'LocalPod User',
+        username: profile.username ?? payload.username ?? null,
+        bio: profile.bio ?? payload.bio ?? null,
+        avatar: profile.avatar ?? payload.avatar ?? null,
+        // Store any additional profile fields
+        email: profile.email ?? payload.email ?? null,
+        location: profile.location ?? payload.location ?? null,
+      };
+
+      // Try to load full profile from platform if available
+      await loadUserProfile();
+
+      localStorage.setItem(STORAGE_KEYS.user, JSON.stringify(currentUser));
+      renderUserBadge();
+      const storedGrantRaw = localStorage.getItem(STORAGE_KEYS.grant);
+      if (storedGrantRaw) {
+        try {
+          const storedGrant = JSON.parse(storedGrantRaw);
+          if (storedGrant && !isGrantExpired(storedGrant)) {
+            currentGrant = storedGrant;
+          } else {
+            localStorage.removeItem(STORAGE_KEYS.grant);
+            currentGrant = null;
+          }
+        } catch (error) {
+          console.warn('Stored grant could not be parsed, clearing:', error);
+          localStorage.removeItem(STORAGE_KEYS.grant);
+          currentGrant = null;
+        }
+      } else {
+        currentGrant = null;
+      }
+
+      updateGrantUI();
+
+      await showApp();
+    }
+
+    // Load user's full profile from platform storage
+    async function loadUserProfile() {
+      if (!currentUser?.publicKey) {
+        console.log('No current user to load profile for');
+        return;
+      }
+
+      // Initialize platform temporarily to load profile
+      try {
+        let remoteStorage = null;
+        if (config?.filebase?.accessKey && config.filebase.secretKey && config.filebase.bucket) {
+          remoteStorage = new SimpleStorage(config.filebase);
+        }
+
+        const tempPlatform = new IdentityPlatform({
+          remoteStorage,
+          serviceManifest: PLATFORM_SERVICE_MANIFEST,
+        });
+        await tempPlatform.init();
+
+        // Load the user's profile
+        const profile = await tempPlatform.getProfile(currentUser.publicKey);
+        console.log('Loaded user profile:', profile);
+
+        // Merge profile data into currentUser
+        if (profile) {
+          currentUser = {
+            ...currentUser,
+            displayName: profile.displayName ?? currentUser.displayName,
+            username: profile.username ?? currentUser.username,
+            bio: profile.bio ?? currentUser.bio,
+            avatar: profile.avatar ?? currentUser.avatar,
+            email: profile.email ?? currentUser.email,
+            location: profile.location ?? currentUser.location,
+          };
+
+          // Update localStorage with fresh profile data
+          localStorage.setItem(STORAGE_KEYS.user, JSON.stringify(currentUser));
+          console.log('Updated currentUser with profile:', currentUser);
+        }
+      } catch (error) {
+        console.warn('Failed to load user profile:', error);
+        // Continue with basic auth data
+      }
+    }
+
+    async function handleGrantIssued(payload, state = null) {
+      if (!currentUser) {
+        alert('Please login before granting permissions.');
+        return;
+      }
+
+      const storedState = sessionStorage.getItem(STORAGE_KEYS.grantState);
+      if (state && storedState && storedState !== state) {
+        alert('Grant verification failed. Please try again.');
+        sessionStorage.removeItem(STORAGE_KEYS.grantState);
+        return;
+      }
+
+      sessionStorage.removeItem(STORAGE_KEYS.grantState);
+
+      const grant = typeof payload === 'string' ? JSON.parse(payload) : payload;
+
+      if (!grant?.resourceId || !grant?.rights) {
+        throw new Error('Received grant payload is missing required fields');
+      }
+
+      if (grant.granterDid && grant.granterDid !== currentUser.did) {
+        alert('Grant was issued by a different identity. Please login again.');
+        return;
+      }
+
+      const expectedResourceId = getNotesResourceId(currentUser.publicKey);
+      if (grant.resourceId !== expectedResourceId) {
+        console.warn('Grant resource does not match expected path:', grant.resourceId, expectedResourceId);
+      }
+
+      currentGrant = grant;
+      localStorage.setItem(STORAGE_KEYS.grant, JSON.stringify(grant));
+      updateGrantUI();
+      await showApp();
+    }
+
+    function handleGrantDenied() {
+      sessionStorage.removeItem(STORAGE_KEYS.grantState);
+      currentGrant = null;
+      localStorage.removeItem(STORAGE_KEYS.grant);
+      updateGrantUI();
+      showGrantRequest();
+      if (dom.grantStatus) {
+        dom.grantStatus.textContent = 'Permission denied. Grant is required to store notes in IPFS.';
+      }
+    }
+
+    function requestGrantPermission() {
+      if (!currentUser) {
+        alert('Please login before requesting permission.');
+        return;
+      }
+
+      if (!hasConfiguredEncryptionKey()) {
+        alert('Service encryption key not configured. Update config.js before requesting permission.');
+        updateGrantUI();
+        return;
+      }
+
+      const resourceId = getNotesResourceId(currentUser.publicKey);
+      const callbackUrl = window.location.href.split('#')[0];
+      const state = generateChallenge();
+      const expiresAt = new Date(Date.now() + DEFAULT_GRANT_DURATION_MS).toISOString();
+
+      sessionStorage.setItem(STORAGE_KEYS.grantState, state);
+      if (dom.requestGrantBtn) {
+        dom.requestGrantBtn.disabled = true;
+      }
+      if (dom.grantStatus) {
+        dom.grantStatus.textContent = 'Waiting for permission approval...';
+      }
+
+      const params = new URLSearchParams({
+        service_did: SERVICE_DID,
+        resource_id: resourceId,
+        rights: GRANT_RIGHTS,
+        expires_at: expiresAt,
+        callback_url: callbackUrl,
+        state,
+      });
+
+      const grantUrlObj = new URL('./grant.html', window.location.href);
+      grantUrlObj.search = params.toString();
+      const grantUrl = grantUrlObj.toString();
+      const popup = window.open(grantUrl, 'Grant Permission', 'width=600,height=720');
+
+      if (!popup || popup.closed || typeof popup.closed === 'undefined') {
+        window.location.href = grantUrl;
+      }
+    }
+
+    function updateGrantUI() {
+      if (!dom.grantCard) return;
+
+      const hasGrant = Boolean(currentGrant && !isGrantExpired(currentGrant));
+      const hasEncryptionKey = hasConfiguredEncryptionKey();
+
+      dom.grantResource.textContent = currentUser ? getNotesResourceId(currentUser.publicKey) : 'Sign in to see requested path.';
+      dom.grantRights.textContent = formatGrantRights(currentGrant) || REQUESTED_RIGHTS.join(', ');
+      dom.grantExpires.textContent = formatGrantExpiry(currentGrant);
+
+      if (dom.requestGrantBtn) {
+        dom.requestGrantBtn.disabled = !hasEncryptionKey;
+        dom.requestGrantBtn.textContent = hasGrant ? 'Refresh Permission' : 'Grant Permission';
+      }
+
+      if (dom.revokeGrantBtn) {
+        dom.revokeGrantBtn.classList.toggle('hidden', !hasGrant);
+        dom.revokeGrantBtn.disabled = !hasGrant;
+      }
+
+      if (hasGrant) {
+        dom.grantCard.classList.add('granted');
+        dom.grantStatus.textContent = `Permission active until ${formatGrantExpiry(currentGrant)}.`;
+      } else {
+        dom.grantCard.classList.remove('granted');
+        if (currentGrant && isGrantExpired(currentGrant)) {
+          dom.grantStatus.textContent = 'Existing permission expired. Please grant again.';
+        } else if (!currentUser) {
+          dom.grantStatus.textContent = '';
+        } else {
+          dom.grantStatus.textContent = 'Grant permission to enable IPFS backups.';
+        }
+      }
+      if (!hasEncryptionKey) {
+        dom.grantStatus.textContent += `${dom.grantStatus.textContent ? ' ' : ''}⚠️ Configure the service encryption key in config.js before granting.`;
+      }
+    }
+
+    // Save note
+    dom.saveNoteBtn.addEventListener('click', async () => {
+      const title = dom.noteTitle.value.trim();
+      const content = dom.noteContent.value.trim();
+
+      if (!content) {
+        alert('Please enter some content');
+        return;
+      }
+
+      // SECURITY: Verify grant and platform access before any storage operation
+      if (!currentGrant || isGrantExpired(currentGrant)) {
+        alert('Please grant storage permission before saving notes.');
+        showGrantRequest();
+        return;
+      }
+
+      if (!platform || !platform.remoteStorage) {
+        alert('Storage access not initialized. Please grant permission again.');
+        currentGrant = null;
+        localStorage.removeItem(STORAGE_KEYS.grant);
+        showGrantRequest();
+        return;
+      }
+
+      const note = {
+        id: Date.now().toString(),
+        title: title || 'Untitled',
+        content,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        author: currentUser.did,
+      };
+
+      try {
+        dom.loader.classList.remove('hidden');
+        dom.saveNoteBtn.disabled = true;
+
+        // Upload note to user's IPFS
+        const storage = platform?.remoteStorage ?? null;
+        if (!storage) {
+          throw new Error('Storage not configured. Please set up Filebase credentials in config.js');
+        }
+
+        const noteKey = `${currentUser.publicKey}/notes/${note.id}.json`;
+        await uploadJson(storage, noteKey, note);
+
+        // Update index
+        notes.unshift(note);
+        await saveNotesIndex();
+
+        // Clear form
+        dom.noteTitle.value = '';
+        dom.noteContent.value = '';
+
+        // Refresh display
+        renderNotes();
+
+        console.log('Note saved:', note.id);
+      } catch (error) {
+        console.error('Failed to save note:', error);
+        alert('Failed to save note: ' + error.message);
+      } finally {
+        dom.loader.classList.add('hidden');
+        dom.saveNoteBtn.disabled = false;
+      }
+    });
+
+    // Load notes
+    async function loadNotes() {
+      try {
+        dom.loader.classList.remove('hidden');
+
+        // SECURITY: Verify grant before loading
+        if (!currentGrant || isGrantExpired(currentGrant)) {
+          throw new Error('Storage permission expired or revoked');
+        }
+
+        const storage = platform?.remoteStorage ?? null;
+        if (!storage) {
+          throw new Error('Storage not configured');
+        }
+
+        const indexKey = `${currentUser.publicKey}/notes/index.json`;
+
+        try {
+          const index = await loadJson(storage, indexKey);
+          notes = Array.isArray(index?.notes) ? index.notes : [];
+        } catch (error) {
+          // Index doesn't exist yet - first time user
+          console.log('No notes index found, creating new one');
+          notes = [];
+        }
+
+        renderNotes();
+      } catch (error) {
+        console.error('Failed to load notes:', error);
+        alert('Failed to load notes: ' + error.message);
+      } finally {
+        dom.loader.classList.add('hidden');
+      }
+    }
+
+    // Save notes index
+    async function saveNotesIndex() {
+      // SECURITY: Verify grant before saving
+      if (!currentGrant || isGrantExpired(currentGrant)) {
+        throw new Error('Storage permission expired or revoked');
+      }
+
+      const storage = platform?.remoteStorage ?? null;
+      if (!storage) {
+        throw new Error('Storage not configured');
+      }
+      const indexKey = `${currentUser.publicKey}/notes/index.json`;
+      await uploadJson(storage, indexKey, {
+        notes,
+        updatedAt: new Date().toISOString(),
+      });
+    }
+
+    // Render notes
+    function renderNotes() {
+      dom.notesCount.textContent = `${notes.length} note${notes.length !== 1 ? 's' : ''}`;
+
+      if (notes.length === 0) {
+        dom.notesGrid.innerHTML = '<div class="empty-state">No notes yet. Create your first note above! 📝</div>';
+        return;
+      }
+
+      dom.notesGrid.innerHTML = notes.map(note => `
+        <div class="note-card" data-note-id="${note.id}">
+          <div class="note-title">${escapeHtml(note.title)}</div>
+          <div class="note-content">${escapeHtml(note.content)}</div>
+          <div class="note-footer">
+            <span>${new Date(note.createdAt).toLocaleDateString()}</span>
+            <button class="icon-btn delete-note" data-note-id="${note.id}" title="Delete note">🗑️</button>
+          </div>
+        </div>
+      `).join('');
+
+      // Add delete handlers
+      document.querySelectorAll('.delete-note').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const noteId = btn.dataset.noteId;
+          await deleteNote(noteId);
+        });
+      });
+    }
+
+    // Delete note
+    async function deleteNote(noteId) {
+      const note = notes.find(n => n.id === noteId);
+      if (!note) return;
+      if (!confirm(`Delete "${note.title}"?`)) return;
+
+      // SECURITY: Verify grant before deleting
+      if (!currentGrant || isGrantExpired(currentGrant)) {
+        alert('Storage permission expired or revoked. Cannot delete note.');
+        showGrantRequest();
+        return;
+      }
+
+      if (!platform || !platform.remoteStorage) {
+        alert('Storage access not initialized. Please grant permission again.');
+        currentGrant = null;
+        localStorage.removeItem(STORAGE_KEYS.grant);
+        showGrantRequest();
+        return;
+      }
+
+      try {
+        dom.loader.classList.remove('hidden');
+
+        // Remove from index
+        notes = notes.filter(n => n.id !== noteId);
+        await saveNotesIndex();
+
+        // Delete from IPFS
+        const storage = platform?.remoteStorage ?? null;
+        const noteKey = `${currentUser.publicKey}/notes/${noteId}.json`;
+        if (storage && typeof storage.deleteObject === 'function') {
+          try {
+            await storage.deleteObject(noteKey);
+          } catch (error) {
+            console.warn('Failed to delete from IPFS:', error);
+            // Continue anyway - index is updated
+          }
+        } else {
+          console.warn('Storage deleteObject not available; note file remains at', noteKey);
+        }
+
+        renderNotes();
+        console.log('Note deleted:', noteId);
+      } catch (error) {
+        console.error('Failed to delete note:', error);
+        alert('Failed to delete note: ' + error.message);
+      } finally {
+        dom.loader.classList.add('hidden');
+      }
+    }
+
+    // Logout
+    dom.logoutBtn.addEventListener('click', () => {
+      if (confirm('Logout? Your notes are safely stored in your IPFS and will be available next time you login.')) {
+        localStorage.removeItem(STORAGE_KEYS.user);
+        sessionStorage.removeItem(STORAGE_KEYS.authChallenge);
+        sessionStorage.removeItem(STORAGE_KEYS.grantState);
+        currentUser = null;
+        currentGrant = null;
+        notes = [];
+        platform = null;
+        dom.noteTitle.value = '';
+        dom.noteContent.value = '';
+        updateGrantUI();
+        renderUserBadge();
+        showLogin();
+      }
+    });
+
+    // Utilities
+    function renderUserBadge() {
+      // Update header badge
+      if (dom.userBadge && dom.userName && dom.userDidDisplay) {
+        if (!currentUser) {
+          dom.userBadge.classList.add('hidden');
+          dom.userName.textContent = '';
+          dom.userDidDisplay.textContent = '';
+        } else {
+          const displayName = currentUser.displayName || currentUser.username || 'LocalPod User';
+          dom.userName.textContent = displayName;
+          dom.userDidDisplay.textContent = shortenDid(currentUser.did);
+          dom.userBadge.classList.remove('hidden');
+        }
+      }
+
+      // Update profile card (only visible in main app)
+      if (!currentUser) return;
+
+      const displayName = currentUser.displayName || currentUser.username || 'LocalPod User';
+      const username = currentUser.username || '';
+      const bio = currentUser.bio || '';
+      const avatar = currentUser.avatar || null;
+
+      // Avatar
+      if (dom.profileAvatarText) {
+        if (avatar) {
+          dom.profileAvatarText.innerHTML = `<img src="${escapeHtml(avatar)}" alt="${escapeHtml(displayName)}" />`;
+        } else {
+          dom.profileAvatarText.textContent = displayName.charAt(0).toUpperCase();
+        }
+      }
+
+      // Profile info
+      if (dom.profileName) {
+        dom.profileName.textContent = displayName;
+      }
+      if (dom.profileUsername) {
+        dom.profileUsername.textContent = username ? `@${username}` : '';
+        dom.profileUsername.style.display = username ? 'block' : 'none';
+      }
+      if (dom.profileBio) {
+        dom.profileBio.textContent = bio;
+        dom.profileBio.style.display = bio ? 'block' : 'none';
+      }
+      if (dom.profileDid) {
+        dom.profileDid.textContent = currentUser.did;
+      }
+      if (dom.profilePublicKey) {
+        const pubKey = currentUser.publicKey;
+        dom.profilePublicKey.textContent = pubKey
+          ? `${pubKey.slice(0, 20)}...${pubKey.slice(-10)}`
+          : 'N/A';
+      }
+      if (dom.profileEncryptionKey && dom.profileEncryptionKeyContainer) {
+        if (currentUser.encryptionPublicKey) {
+          const encKey = currentUser.encryptionPublicKey;
+          dom.profileEncryptionKey.textContent = `${encKey.slice(0, 20)}...${encKey.slice(-10)}`;
+          dom.profileEncryptionKeyContainer.style.display = 'block';
+        } else {
+          dom.profileEncryptionKeyContainer.style.display = 'none';
+        }
+      }
+    }
+
+    function getNotesResourceId(publicKey) {
+      if (!publicKey) return 'Sign in to see requested path.';
+      const template = serviceInfo?.resourcePathTemplate ?? SERVICE_RESOURCE_TEMPLATE;
+      if (template) {
+        return applyTemplate(template, {
+          publicKey,
+          did: currentUser?.did ?? '',
+        });
+      }
+      return `ipfs://${publicKey}/notes/*`;
+    }
+
+    function formatGrantExpiry(grant) {
+      if (grant?.expiresAt) {
+        const date = new Date(grant.expiresAt);
+        if (!Number.isNaN(date.getTime())) {
+          return date.toLocaleString();
+        }
+        return String(grant.expiresAt);
+      }
+      return formatDuration(DEFAULT_GRANT_DURATION_MS);
+    }
+
+    function formatGrantRights(grant) {
+      if (!grant?.rights) {
+        return REQUESTED_RIGHTS.join(', ');
+      }
+      if (Array.isArray(grant.rights)) {
+        return grant.rights.join(', ');
+      }
+      return String(grant.rights)
+        .split(',')
+        .map(part => part.trim())
+        .filter(Boolean)
+        .join(', ');
+    }
+
+    function isGrantExpired(grant) {
+      if (!grant?.expiresAt) return false;
+      const expiry = new Date(grant.expiresAt).getTime();
+      if (Number.isNaN(expiry)) return false;
+      return expiry < Date.now();
+    }
+
+    function isAllowedGrantOrigin(origin) {
+      if (window.location.protocol === 'file:') {
+        return true;
+      }
+      return origin === window.location.origin;
+    }
+
+    async function uploadJson(storage, key, payload) {
+      const body = JSON.stringify(payload, null, 2);
+      await storage.putObject(key, body, 'application/json');
+    }
+
+    async function loadJson(storage, key) {
+      return storage.getObject(key, { responseType: 'json' });
+    }
+
+    function hasConfiguredEncryptionKey() {
+      const key =
+        coerceEncryptionKey(
+          serviceInfo?.encryptionPublicKey ?? ACTIVE_SERVICE.encryptionPublicKey ?? null,
+        ) ?? null;
+      return Boolean(key);
+    }
+
+    function coerceEncryptionKey(value) {
+      if (!value) return null;
+      const stringValue = String(value).trim();
+      if (!stringValue || stringValue.toUpperCase().includes('REPLACE')) {
+        return null;
+      }
+      try {
+        const bytes = base58ToBytes(stringValue);
+        if (!isValidPublicKey(bytes)) {
+          return null;
+        }
+        return stringValue;
+      } catch {
+        return null;
+      }
+    }
+
+    function normalizeRights(rights) {
+      if (!rights) return [];
+      const list = Array.isArray(rights) ? rights : String(rights).split(',');
+      return Array.from(
+        new Set(
+          list
+            .map(item => String(item || '').trim())
+            .filter(Boolean),
+        ),
+      );
+    }
+
+    function applyTemplate(template, context) {
+      if (!template || typeof template !== 'string') return template ?? '';
+      let output = template.replace(/\$\{([^}]+)\}/g, (_, match) => {
+        const key = match.trim();
+        return key in context ? context[key] : '';
+      });
+      output = output.replace(/\{\{\s*([^}]+)\s*\}\}/g, (_, match) => {
+        const key = match.trim();
+        return key in context ? context[key] : '';
+      });
+      return output;
+    }
+
+    function formatDuration(durationMs) {
+      if (!Number.isFinite(durationMs) || durationMs <= 0) {
+        return 'Until revoked';
+      }
+      const days = Math.round(durationMs / (24 * 60 * 60 * 1000));
+      if (days >= 365) {
+        const years = (days / 365).toFixed(1).replace(/\.0$/, '');
+        return `${years} year${years === '1' ? '' : 's'} from approval`;
+      }
+      if (days >= 30) {
+        const months = (days / 30).toFixed(1).replace(/\.0$/, '');
+        return `${months} month${months === '1' ? '' : 's'} from approval`;
+      }
+      if (days > 1) {
+        return `${days} days from approval`;
+      }
+      const hours = Math.round(durationMs / (60 * 60 * 1000));
+      if (hours > 1) {
+        return `${hours} hours from approval`;
+      }
+      return 'Within the next hour';
+    }
+
+    function generateChallenge() {
+      const array = new Uint8Array(32);
+      crypto.getRandomValues(array);
+      return btoa(String.fromCharCode(...array));
+    }
+
+    function shortenDid(did) {
+      if (!did) return '';
+      return did.slice(0, 15) + '...' + did.slice(-8);
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // Start app
+    init();
+  </script>
+</body>
+</html>
