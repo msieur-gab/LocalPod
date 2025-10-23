@@ -567,6 +567,14 @@ export class SimpleStorage {
                 version: payload.private.collaborators.version ?? 1,
               }
             : payload.private.collaborators ?? null,
+          services: payload.private.services
+            ? {
+                cipher: payload.private.services.cipher ?? null,
+                iv: payload.private.services.iv ?? null,
+                updatedAt: payload.private.services.updatedAt ?? new Date().toISOString(),
+                version: payload.private.services.version ?? 1,
+              }
+            : payload.private.services ?? null,
         }
       : null;
 
@@ -628,6 +636,14 @@ export class SimpleStorage {
                   iv: result.private.collaborators.iv ?? null,
                   updatedAt: result.private.collaborators.updatedAt ?? null,
                   version: result.private.collaborators.version ?? 1,
+                }
+              : null,
+            services: result.private.services
+              ? {
+                  cipher: result.private.services.cipher ?? null,
+                  iv: result.private.services.iv ?? null,
+                  updatedAt: result.private.services.updatedAt ?? null,
+                  version: result.private.services.version ?? 1,
                 }
               : null,
           }
@@ -761,6 +777,7 @@ export class SimpleStorage {
           existing?.private?.encryptionIterations ??
           600000,
         collaborators: existing?.private?.collaborators ?? null,
+        services: existing?.private?.services ?? null,
       },
     };
 
@@ -824,6 +841,7 @@ export class SimpleStorage {
               updatedAt: payload.updatedAt ?? new Date().toISOString(),
             }
           : null,
+        services: existing?.private?.services ?? null,
       },
     };
 
@@ -843,6 +861,63 @@ export class SimpleStorage {
       cipher: userFile.private.collaborators.cipher ?? null,
       iv: userFile.private.collaborators.iv ?? null,
       updatedAt: userFile.private.collaborators.updatedAt ?? null,
+    };
+  }
+
+  /**
+   * Save encrypted service grants into unified user file.
+   * Payload shape: { cipher, iv, version, updatedAt }
+   */
+  async saveServiceBackup(publicKey, payload) {
+    const existing = await this.loadUnifiedUser(publicKey);
+
+    const userPayload = {
+      version: existing?.version ?? 1,
+      encryptionPublicKey: existing?.encryptionPublicKey ?? null,
+      public: existing?.public ?? {
+        username: null,
+        displayName: null,
+        avatar: null,
+        bio: null,
+        updatedAt: new Date().toISOString(),
+      },
+      private: {
+        cipher: existing?.private?.cipher ?? null,
+        iv: existing?.private?.iv ?? null,
+        salt: existing?.private?.salt ?? null,
+        iterations: existing?.private?.iterations ?? 600000,
+        encryptionCipher: existing?.private?.encryptionCipher ?? null,
+        encryptionIv: existing?.private?.encryptionIv ?? null,
+        encryptionSalt: existing?.private?.encryptionSalt ?? null,
+        encryptionIterations: existing?.private?.encryptionIterations ?? 600000,
+        collaborators: existing?.private?.collaborators ?? null,
+        services: payload
+          ? {
+              cipher: payload.cipher ?? null,
+              iv: payload.iv ?? null,
+              version: payload.version ?? 1,
+              updatedAt: payload.updatedAt ?? new Date().toISOString(),
+            }
+          : null,
+      },
+    };
+
+    await this.saveUnifiedUser(publicKey, userPayload);
+  }
+
+  /**
+   * Load encrypted service grants from unified user file.
+   * @param {string} publicKey
+   * @returns {object|null}
+   */
+  async loadServiceBackup(publicKey) {
+    const userFile = await this.loadUnifiedUser(publicKey);
+    if (!userFile?.private?.services) return null;
+    return {
+      version: userFile.private.services.version ?? 1,
+      cipher: userFile.private.services.cipher ?? null,
+      iv: userFile.private.services.iv ?? null,
+      updatedAt: userFile.private.services.updatedAt ?? null,
     };
   }
 }

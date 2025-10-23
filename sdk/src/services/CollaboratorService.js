@@ -178,6 +178,149 @@ export class CollaboratorService {
     }
   }
 
+  // ========== Service Grants Backup (IPFS Sync) ==========
+
+  async buildServiceSnapshot() {
+    if (!this.accountService) return [];
+    const identity = this.accountService.getUnlockedIdentity();
+    if (!identity) return [];
+
+    const grants = await listCapabilityGrantsByGranter(identity.did);
+
+    // Filter to only service grants (those with service metadata)
+    const serviceGrants = grants.filter(grant =>
+      grant.metadata?.serviceName || grant.metadata?.serviceId
+    );
+
+    return serviceGrants.map((grant) => ({
+      id: grant.id,
+      granterDid: grant.granterDid,
+      subjectDid: grant.subjectDid,
+      resourceId: grant.resourceId,
+      rights: grant.rights,
+      issuedAt: grant.issuedAt,
+      expiresAt: grant.expiresAt,
+      metadata: grant.metadata,
+    }));
+  }
+
+  async buildEncryptedServiceBackup() {
+    const key = await this.deriveCollaboratorBackupKey();
+    if (!key) return null;
+
+    const snapshot = await this.buildServiceSnapshot();
+    const payload = {
+      version: BACKUP_VERSION,
+      updatedAt: new Date().toISOString(),
+      services: snapshot,
+    };
+
+    const plainBytes = stringToBytes(JSON.stringify(payload));
+    const { ciphertext, iv } = await encryptWithKey(key, plainBytes);
+
+    return {
+      cipher: bytesToBase64(ciphertext),
+      iv: bytesToBase64(iv),
+      version: BACKUP_VERSION,
+      updatedAt: payload.updatedAt,
+    };
+  }
+
+  async persistServicesToRemote() {
+    const remoteStorage = this.remoteStorage;
+    if (!remoteStorage || !this.accountService) return;
+
+    const identity = this.accountService.getUnlockedIdentity();
+    if (!identity?.publicKey) return;
+
+    try {
+      const backup = await this.buildEncryptedServiceBackup();
+      if (!backup) return;
+
+      await remoteStorage.saveServiceBackup(identity.publicKey, backup);
+    } catch (error) {
+      console.warn('Failed to sync services to remote storage:', error);
+    }
+  }
+
+  async restoreServicesFromEncryptedBackup(encrypted, { replace = false } = {}) {
+    if (!encrypted?.cipher || !encrypted?.iv) return null;
+
+    const key = await this.deriveCollaboratorBackupKey();
+    if (!key) {
+      console.warn('Cannot restore services: missing encryption key material');
+      return null;
+    }
+
+    try {
+      const cipherBytes = base64ToBytes(encrypted.cipher);
+      const ivBytes = base64ToBytes(encrypted.iv);
+      const plainBytes = await decryptWithKey(key, cipherBytes, ivBytes);
+      const decoded = JSON.parse(bytesToString(plainBytes));
+
+      const entries = Array.isArray(decoded?.services) ? decoded.services : [];
+      const normalized = entries.map((entry) => ({
+        id: entry.id,
+        granterDid: entry.granterDid,
+        subjectDid: entry.subjectDid,
+        resourceId: entry.resourceId,
+        rights: entry.rights,
+        issuedAt: entry.issuedAt,
+        expiresAt: entry.expiresAt,
+        metadata: entry.metadata,
+      }));
+
+      if (normalized.length === 0) {
+        if (replace) {
+          // Clear local service grants when explicit replace requested
+          const db = getPlatformDatabase();
+          const currentGrants = await listCapabilityGrantsByGranter(this.accountService.getUnlockedIdentity().did);
+          const serviceGrantIds = currentGrants
+            .filter(g => g.metadata?.serviceName || g.metadata?.serviceId)
+            .map(g => g.id);
+
+          await db.transaction('rw', db.capabilityGrants, async () => {
+            for (const id of serviceGrantIds) {
+              await deleteCapabilityGrant(id);
+            }
+          });
+        }
+        return [];
+      }
+
+      if (replace) {
+        // Replace mode: clear existing service grants, then add from backup
+        const db = getPlatformDatabase();
+        const currentGrants = await listCapabilityGrantsByGranter(this.accountService.getUnlockedIdentity().did);
+        const serviceGrantIds = currentGrants
+          .filter(g => g.metadata?.serviceName || g.metadata?.serviceId)
+          .map(g => g.id);
+
+        await db.transaction('rw', db.capabilityGrants, async () => {
+          for (const id of serviceGrantIds) {
+            await deleteCapabilityGrant(id);
+          }
+          for (const record of normalized) {
+            await saveCapabilityGrant(record);
+          }
+        });
+      } else {
+        // Merge mode: add missing grants
+        for (const record of normalized) {
+          const existing = await getCapabilityGrant(record.id);
+          if (!existing) {
+            await saveCapabilityGrant(record);
+          }
+        }
+      }
+
+      return normalized;
+    } catch (error) {
+      console.warn('Failed to restore services from backup:', error);
+      return null;
+    }
+  }
+
   /**
    * List all collaborators
    * @returns {Promise<Array>}
