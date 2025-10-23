@@ -35,8 +35,7 @@ import {
   buildGrantRecord,
 } from '../core/CapabilityGrant.js';
 import { encryptWithKey, decryptWithKey, importAesKey } from '../core/crypto.js';
-
-const COLLABORATOR_BACKUP_VERSION = 1;
+import { BACKUP_VERSION } from '../constants.js';
 
 /**
  * Collaborator Service
@@ -83,7 +82,7 @@ export class CollaboratorService {
 
     const snapshot = await this.buildCollaboratorSnapshot();
     const payload = {
-      version: COLLABORATOR_BACKUP_VERSION,
+      version: BACKUP_VERSION,
       updatedAt: new Date().toISOString(),
       collaborators: snapshot,
     };
@@ -94,7 +93,7 @@ export class CollaboratorService {
     return {
       cipher: bytesToBase64(ciphertext),
       iv: bytesToBase64(iv),
-      version: COLLABORATOR_BACKUP_VERSION,
+      version: BACKUP_VERSION,
       updatedAt: payload.updatedAt,
     };
   }

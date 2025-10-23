@@ -4,6 +4,7 @@
  */
 
 import { saveProfile, getProfile, listProfiles, deleteProfile } from '../storage/PlatformDatabase.js';
+import { PROFILE_CACHE_TTL_MS } from '../constants.js';
 
 /**
  * Profile Service
@@ -13,7 +14,7 @@ export class ProfileService {
   constructor(remoteStorage = null) {
     this.remoteStorage = remoteStorage;
     this.cache = new Map();
-    this.cacheTTL = 5 * 60 * 1000; // 5 minutes
+    this.cacheTTL = PROFILE_CACHE_TTL_MS;
   }
 
   /**

@@ -5,6 +5,11 @@
  */
 
 import Dexie from 'dexie';
+import {
+  LOGIN_LOCKOUT_MIN_ATTEMPTS,
+  LOGIN_LOCKOUT_MAX_DELAY_SEC,
+  LOGIN_LOCKOUT_BASE,
+} from '../constants.js';
 
 const DATABASE_NAME = 'identityPlatform';
 
@@ -506,16 +511,19 @@ export const checkLoginLockout = async (username) => {
   const attempts = record.failedAttempts ?? 0;
   if (attempts === 0) return { locked: false, waitSeconds: 0 };
 
-  // Exponential backoff: wait 2^(attempts-3) seconds after 3 failed attempts
+  // Exponential backoff: wait 2^(attempts-MIN_ATTEMPTS) seconds after MIN_ATTEMPTS failed attempts
   // 3 attempts: 1 second
   // 4 attempts: 2 seconds
   // 5 attempts: 4 seconds
   // 6 attempts: 8 seconds
   // 7 attempts: 16 seconds
   // 8+ attempts: 32 seconds
-  if (attempts < 3) return { locked: false, waitSeconds: 0 };
+  if (attempts < LOGIN_LOCKOUT_MIN_ATTEMPTS) return { locked: false, waitSeconds: 0 };
 
-  const waitSeconds = Math.min(Math.pow(2, attempts - 3), 32);
+  const waitSeconds = Math.min(
+    Math.pow(LOGIN_LOCKOUT_BASE, attempts - LOGIN_LOCKOUT_MIN_ATTEMPTS),
+    LOGIN_LOCKOUT_MAX_DELAY_SEC
+  );
   const lastAttemptTime = new Date(record.lastAttempt).getTime();
   const now = Date.now();
   const elapsed = (now - lastAttemptTime) / 1000;

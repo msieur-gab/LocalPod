@@ -27,6 +27,7 @@ import {
   deletePasskeyCredential,
 } from '../storage/PlatformDatabase.js';
 import { PasskeySession, isPasskeySupported } from '../core/PasskeySession.js';
+import { PBKDF2_ITERATIONS, PASSWORD_MIN_LENGTH, BACKUP_VERSION } from '../constants.js';
 
 /**
  * Account Service
@@ -140,8 +141,8 @@ export class AccountService {
   validatePasswordStrength(password) {
     const errors = [];
 
-    if (password.length < 12) {
-      errors.push('Password must be at least 12 characters long');
+    if (password.length < PASSWORD_MIN_LENGTH) {
+      errors.push(`Password must be at least ${PASSWORD_MIN_LENGTH} characters long`);
     }
 
     if (!/[a-z]/.test(password)) {
@@ -227,21 +228,7 @@ export class AccountService {
     });
 
     // Save backup
-    await saveBackup({
-      publicKey: accountRecord.publicKey,
-      did,
-      cipher: accountRecord.encryptedPrivateKey,
-      iv: accountRecord.encryptionIv,
-      salt: accountRecord.salt,
-      iterations: accountRecord.iterations,
-      encryptionCipher: accountRecord.encryptedEncryptionKey,
-      encryptionIv: accountRecord.encryptionKeyIv,
-      encryptionSalt: accountRecord.encryptionSalt,
-      encryptionIterations: accountRecord.encryptionIterations,
-      encryptionPublicKey: accountRecord.encryptionPublicKey,
-      version: 1,
-      updatedAt: now,
-    });
+    await saveBackup(this._buildBackupPayload(accountRecord, did, now));
 
     // Unlock the account
     this.unlockedIdentity = {
@@ -357,21 +344,7 @@ export class AccountService {
     await clearLoginAttempts(normalized);
 
     // Update backup
-    await saveBackup({
-      publicKey: account.publicKey,
-      did: account.did,
-      cipher: account.encryptedPrivateKey,
-      iv: account.encryptionIv,
-      salt: account.salt,
-      iterations: account.iterations,
-      encryptionCipher: account.encryptedEncryptionKey,
-      encryptionIv: account.encryptionKeyIv,
-      encryptionSalt: account.encryptionSalt,
-      encryptionIterations: account.encryptionIterations,
-      encryptionPublicKey: account.encryptionPublicKey,
-      version: 1,
-      updatedAt: account.updatedAt,
-    });
+    await saveBackup(this._buildBackupPayload(account, account.did, account.updatedAt));
 
     return this.getUnlockedIdentity();
   }
@@ -426,13 +399,13 @@ export class AccountService {
       encryptedPrivateKey: this.currentAccountRecord.encryptedPrivateKey,
       encryptionIv: this.currentAccountRecord.encryptionIv,
       salt: this.currentAccountRecord.salt,
-      iterations: this.currentAccountRecord.iterations ?? 600000,
+      iterations: this.currentAccountRecord.iterations ?? PBKDF2_ITERATIONS,
       encryptedEncryptionKey: this.currentAccountRecord.encryptedEncryptionKey ?? null,
       encryptionKeyIv: this.currentAccountRecord.encryptionKeyIv ?? null,
       encryptionSalt: this.currentAccountRecord.encryptionSalt ?? null,
-      encryptionIterations: this.currentAccountRecord.encryptionIterations ?? 600000,
+      encryptionIterations: this.currentAccountRecord.encryptionIterations ?? PBKDF2_ITERATIONS,
       encryptionPublicKey: this.currentAccountRecord.encryptionPublicKey ?? null,
-      version: 1,
+      version: BACKUP_VERSION,
       updatedAt: this.currentAccountRecord.updatedAt ?? new Date().toISOString(),
       createdAt: this.currentAccountRecord.createdAt ?? null,
     };
@@ -559,28 +532,14 @@ export class AccountService {
       encryptedPrivateKey: backup.encryptedPrivateKey,
       encryptionIv: backup.encryptionIv,
       salt: backup.salt,
-      iterations: backup.iterations ?? 600000,
+      iterations: backup.iterations ?? PBKDF2_ITERATIONS,
       encryptedEncryptionKey: backup.encryptedEncryptionKey ?? null,
       encryptionKeyIv: backup.encryptionKeyIv ?? null,
       encryptionSalt: backup.encryptionSalt ?? null,
-      encryptionIterations: backup.encryptionIterations ?? 600000,
+      encryptionIterations: backup.encryptionIterations ?? PBKDF2_ITERATIONS,
     });
 
-    await saveBackup({
-      publicKey: accountRecord.publicKey,
-      did,
-      cipher: accountRecord.encryptedPrivateKey,
-      iv: accountRecord.encryptionIv,
-      salt: accountRecord.salt,
-      iterations: accountRecord.iterations,
-      encryptionCipher: accountRecord.encryptedEncryptionKey,
-      encryptionIv: accountRecord.encryptionKeyIv,
-      encryptionSalt: accountRecord.encryptionSalt,
-      encryptionIterations: accountRecord.encryptionIterations,
-      encryptionPublicKey: accountRecord.encryptionPublicKey,
-      version: 1,
-      updatedAt: backup.updatedAt ?? now,
-    });
+    await saveBackup(this._buildBackupPayload(accountRecord, did, backup.updatedAt ?? now));
 
     this.unlockedIdentity = {
       username: normalized,
@@ -597,6 +556,32 @@ export class AccountService {
     this.currentAccountRecord = accountRecord;
 
     return this.getUnlockedIdentity();
+  }
+
+  /**
+   * Build backup payload from account record
+   * @param {Object} accountRecord - Account record from database
+   * @param {string} did - DID identifier
+   * @param {string} [updatedAt] - ISO timestamp (defaults to now)
+   * @returns {Object} Backup payload for saveBackup()
+   * @private
+   */
+  _buildBackupPayload(accountRecord, did, updatedAt = null) {
+    return {
+      publicKey: accountRecord.publicKey,
+      did,
+      cipher: accountRecord.encryptedPrivateKey,
+      iv: accountRecord.encryptionIv,
+      salt: accountRecord.salt,
+      iterations: accountRecord.iterations,
+      encryptionCipher: accountRecord.encryptedEncryptionKey,
+      encryptionIv: accountRecord.encryptionKeyIv,
+      encryptionSalt: accountRecord.encryptionSalt,
+      encryptionIterations: accountRecord.encryptionIterations,
+      encryptionPublicKey: accountRecord.encryptionPublicKey,
+      version: BACKUP_VERSION,
+      updatedAt: updatedAt ?? new Date().toISOString(),
+    };
   }
 
   /**
