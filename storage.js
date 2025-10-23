@@ -730,6 +730,10 @@ export class SimpleStorage {
         iv: existing?.private?.iv ?? null,
         salt: existing?.private?.salt ?? null,
         iterations: existing?.private?.iterations ?? 600000,
+        encryptionCipher: existing?.private?.encryptionCipher ?? null,
+        encryptionIv: existing?.private?.encryptionIv ?? null,
+        encryptionSalt: existing?.private?.encryptionSalt ?? null,
+        encryptionIterations: existing?.private?.encryptionIterations ?? 600000,
         collaborators: payload
           ? {
               cipher: payload.cipher ?? null,
