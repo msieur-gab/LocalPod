@@ -200,13 +200,26 @@
       let platform = null;
       let challengeParams = null;
 
-      // Parse challenge from URL
+      // Parse challenge from URL (check both search params and hash)
       function parseChallenge() {
-        const params = new URLSearchParams(window.location.search);
-        const challenge = params.get('challenge');
-        const serviceDid = params.get('service_did');
-        const callbackUrl = params.get('callback_url');
-        const state = params.get('state');
+        // Try query params first (?challenge=...)
+        let params = new URLSearchParams(window.location.search);
+        let challenge = params.get('challenge');
+        let serviceDid = params.get('service_did');
+        let callbackUrl = params.get('callback_url');
+        let state = params.get('state');
+
+        // If not found, try hash (#challenge=...)
+        if (!challenge && window.location.hash) {
+          const hash = window.location.hash.startsWith('#')
+            ? window.location.hash.slice(1)
+            : window.location.hash;
+          params = new URLSearchParams(hash);
+          challenge = params.get('challenge');
+          serviceDid = params.get('service_did');
+          callbackUrl = params.get('callback_url');
+          state = params.get('state');
+        }
 
         if (!challenge || !serviceDid || !callbackUrl) {
           return null;
