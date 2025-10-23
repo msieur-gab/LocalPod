@@ -14,6 +14,13 @@ let currentProfile = null;
 let hasRemoteStorage = false;
 let cachedCollaborators = [];
 
+// Expose for debugging in console
+window.debugPlatform = {
+  getPlatform: () => platform,
+  getIdentity: () => currentIdentity,
+  getProfile: () => currentProfile,
+};
+
 function buildIdentitySharePayload() {
   if (!currentIdentity) return '';
 
