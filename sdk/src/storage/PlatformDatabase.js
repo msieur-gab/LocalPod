@@ -59,6 +59,82 @@ export const getPlatformDatabase = () => {
   return dbInstance;
 };
 
+// ========== Database Query Helpers ==========
+
+/**
+ * Generic get operation by primary key
+ * @param {string} tableName - Table name
+ * @param {any} key - Primary key value
+ * @returns {Promise<Object|undefined>}
+ */
+const dbGet = async (tableName, key) => {
+  const db = getPlatformDatabase();
+  return db[tableName].get(key);
+};
+
+/**
+ * Generic query by field with where/equals/first
+ * @param {string} tableName - Table name
+ * @param {string} field - Field name to query
+ * @param {any} value - Value to match
+ * @returns {Promise<Object|undefined>}
+ */
+const dbFindFirst = async (tableName, field, value) => {
+  if (!value) return null;
+  const db = getPlatformDatabase();
+  return db[tableName].where(field).equals(value).first();
+};
+
+/**
+ * Generic query by field with where/equals/toArray
+ * @param {string} tableName - Table name
+ * @param {string} field - Field name to query
+ * @param {any} value - Value to match
+ * @returns {Promise<Array>}
+ */
+const dbFindAll = async (tableName, field, value) => {
+  const db = getPlatformDatabase();
+  return db[tableName].where(field).equals(value).toArray();
+};
+
+/**
+ * Generic list all with optional ordering
+ * @param {string} tableName - Table name
+ * @param {string} [orderBy] - Field to order by
+ * @param {boolean} [reverse=false] - Reverse order
+ * @returns {Promise<Array>}
+ */
+const dbList = async (tableName, orderBy = null, reverse = false) => {
+  const db = getPlatformDatabase();
+  if (orderBy) {
+    const query = db[tableName].orderBy(orderBy);
+    return reverse ? query.reverse().toArray() : query.toArray();
+  }
+  return db[tableName].toArray();
+};
+
+/**
+ * Generic put operation
+ * @param {string} tableName - Table name
+ * @param {Object} record - Record to save
+ * @returns {Promise<any>} Primary key of saved record
+ */
+const dbPut = async (tableName, record) => {
+  const db = getPlatformDatabase();
+  return db[tableName].put(record);
+};
+
+/**
+ * Generic delete operation
+ * @param {string} tableName - Table name
+ * @param {any} key - Primary key to delete
+ * @returns {Promise<void>}
+ */
+const dbDelete = async (tableName, key) => {
+  const db = getPlatformDatabase();
+  return db[tableName].delete(key);
+};
+
 // ========== Account Operations ==========
 
 /**
@@ -66,8 +142,7 @@ export const getPlatformDatabase = () => {
  * @returns {Promise<Array>}
  */
 export const listAccounts = async () => {
-  const db = getPlatformDatabase();
-  return db.accounts.orderBy('createdAt').toArray();
+  return dbList('accounts', 'createdAt');
 };
 
 /**
@@ -76,8 +151,7 @@ export const listAccounts = async () => {
  * @returns {Promise<Object|undefined>}
  */
 export const getAccount = async (username) => {
-  const db = getPlatformDatabase();
-  return db.accounts.get(username);
+  return dbGet('accounts', username);
 };
 
 /**
@@ -86,8 +160,7 @@ export const getAccount = async (username) => {
  * @returns {Promise<Object|undefined>}
  */
 export const getAccountByPublicKey = async (publicKey) => {
-  const db = getPlatformDatabase();
-  return db.accounts.where('publicKey').equals(publicKey).first();
+  return dbFindFirst('accounts', 'publicKey', publicKey);
 };
 
 /**
@@ -107,10 +180,9 @@ export const saveAccount = async (account) => {
     throw new Error('saveAccount requires username');
   }
 
-  const db = getPlatformDatabase();
   const now = new Date().toISOString();
 
-  await db.accounts.put({
+  await dbPut('accounts', {
     ...account,
     createdAt: account.createdAt ?? now,
     updatedAt: now,
@@ -125,8 +197,7 @@ export const saveAccount = async (account) => {
  * @returns {Promise<void>}
  */
 export const deleteAccount = async (username) => {
-  const db = getPlatformDatabase();
-  await db.accounts.delete(username);
+  return dbDelete('accounts', username);
 };
 
 // ========== Passkey Registry ==========
@@ -144,8 +215,7 @@ export const savePasskeyCredential = async (credential) => {
     throw new Error('savePasskeyCredential requires credentialId and username');
   }
 
-  const db = getPlatformDatabase();
-  await db.passkeys.put({
+  return dbPut('passkeys', {
     credentialId: credential.credentialId,
     username: credential.username,
     meta: credential.meta ?? null,
@@ -159,8 +229,7 @@ export const savePasskeyCredential = async (credential) => {
  * @returns {Promise<Array>}
  */
 export const listPasskeyCredentials = async (username) => {
-  const db = getPlatformDatabase();
-  return db.passkeys.where('username').equals(username).toArray();
+  return dbFindAll('passkeys', 'username', username);
 };
 
 /**
@@ -169,8 +238,7 @@ export const listPasskeyCredentials = async (username) => {
  * @returns {Promise<Object|undefined>}
  */
 export const getPasskeyCredential = async (credentialId) => {
-  const db = getPlatformDatabase();
-  return db.passkeys.get(credentialId);
+  return dbGet('passkeys', credentialId);
 };
 
 /**
@@ -179,8 +247,7 @@ export const getPasskeyCredential = async (credentialId) => {
  * @returns {Promise<void>}
  */
 export const deletePasskeyCredential = async (credentialId) => {
-  const db = getPlatformDatabase();
-  await db.passkeys.delete(credentialId);
+  return dbDelete('passkeys', credentialId);
 };
 
 // ========== Collaborator Operations ==========
@@ -190,8 +257,7 @@ export const deletePasskeyCredential = async (credentialId) => {
  * @returns {Promise<Array>}
  */
 export const listCollaborators = async () => {
-  const db = getPlatformDatabase();
-  return db.collaborators.orderBy('addedAt').reverse().toArray();
+  return dbList('collaborators', 'addedAt', true);
 };
 
 /**
@@ -200,8 +266,7 @@ export const listCollaborators = async () => {
  * @returns {Promise<Object|undefined>}
  */
 export const getCollaborator = async (id) => {
-  const db = getPlatformDatabase();
-  return db.collaborators.get(id);
+  return dbGet('collaborators', id);
 };
 
 /**
@@ -210,14 +275,11 @@ export const getCollaborator = async (id) => {
  * @returns {Promise<Object|undefined>}
  */
 export const getCollaboratorByPublicKey = async (publicKey) => {
-  const db = getPlatformDatabase();
-  return db.collaborators.where('publicKey').equals(publicKey).first();
+  return dbFindFirst('collaborators', 'publicKey', publicKey);
 };
 
 export const getCollaboratorByDid = async (did) => {
-  if (!did) return null;
-  const db = getPlatformDatabase();
-  return db.collaborators.where('did').equals(did).first();
+  return dbFindFirst('collaborators', 'did', did);
 };
 
 /**
@@ -233,10 +295,9 @@ export const addCollaborator = async (collaborator) => {
     throw new Error('addCollaborator requires id and publicKey');
   }
 
-  const db = getPlatformDatabase();
   const now = new Date().toISOString();
 
-  await db.collaborators.put({
+  await dbPut('collaborators', {
     id: collaborator.id,
     name: collaborator.name ?? null,
     publicKey: collaborator.publicKey,
@@ -255,8 +316,7 @@ export const addCollaborator = async (collaborator) => {
  * @returns {Promise<Array>}
  */
 export const removeCollaborator = async (id) => {
-  const db = getPlatformDatabase();
-  await db.collaborators.delete(id);
+  await dbDelete('collaborators', id);
   return listCollaborators();
 };
 
@@ -279,10 +339,8 @@ export const saveProfile = async (profile) => {
     throw new Error('saveProfile requires publicKey');
   }
 
-  const db = getPlatformDatabase();
-
   // Load existing profile to merge with (preserves fields not provided)
-  const existing = await db.profiles.get(profile.publicKey);
+  const existing = await dbGet('profiles', profile.publicKey);
 
   const record = {
     publicKey: profile.publicKey,
@@ -304,7 +362,7 @@ export const saveProfile = async (profile) => {
     updatedAt: profile.updatedAt ?? new Date().toISOString(),
   };
 
-  await db.profiles.put(record);
+  await dbPut('profiles', record);
   return record;
 };
 
@@ -315,8 +373,7 @@ export const saveProfile = async (profile) => {
  */
 export const getProfile = async (publicKey) => {
   if (!publicKey) return null;
-  const db = getPlatformDatabase();
-  return db.profiles.get(publicKey);
+  return dbGet('profiles', publicKey);
 };
 
 /**
@@ -324,8 +381,7 @@ export const getProfile = async (publicKey) => {
  * @returns {Promise<Array>}
  */
 export const listProfiles = async () => {
-  const db = getPlatformDatabase();
-  return db.profiles.toArray();
+  return dbList('profiles');
 };
 
 /**
@@ -334,8 +390,7 @@ export const listProfiles = async () => {
  * @returns {Promise<void>}
  */
 export const deleteProfile = async (publicKey) => {
-  const db = getPlatformDatabase();
-  await db.profiles.delete(publicKey);
+  return dbDelete('profiles', publicKey);
 };
 
 // ========== Backup Operations ==========
@@ -358,8 +413,7 @@ export const saveBackup = async (backup) => {
     throw new Error('saveBackup requires publicKey, cipher, iv, salt, iterations, encryptionIterations, and version');
   }
 
-  const db = getPlatformDatabase();
-  await db.backups.put({
+  return dbPut('backups', {
     publicKey: backup.publicKey,
     did: backup.did ?? null,
     cipher: backup.cipher,
@@ -383,8 +437,7 @@ export const saveBackup = async (backup) => {
  */
 export const getBackup = async (publicKey) => {
   if (!publicKey) return null;
-  const db = getPlatformDatabase();
-  return db.backups.get(publicKey);
+  return dbGet('backups', publicKey);
 };
 
 /**
@@ -393,8 +446,7 @@ export const getBackup = async (publicKey) => {
  * @returns {Promise<void>}
  */
 export const deleteBackup = async (publicKey) => {
-  const db = getPlatformDatabase();
-  await db.backups.delete(publicKey);
+  return dbDelete('backups', publicKey);
 };
 
 // ========== Capability Grants ==========
@@ -410,36 +462,30 @@ export const saveCapabilityGrant = async (grant) => {
     throw new Error('saveCapabilityGrant requires id');
   }
 
-  const db = getPlatformDatabase();
-  await db.capabilityGrants.put({
+  return dbPut('capabilityGrants', {
     ...grant,
     updatedAt: grant.updatedAt ?? new Date().toISOString(),
   });
 };
 
 export const getCapabilityGrant = async (id) => {
-  const db = getPlatformDatabase();
-  return db.capabilityGrants.get(id);
+  return dbGet('capabilityGrants', id);
 };
 
 export const listCapabilityGrantsByGranter = async (granterDid) => {
-  const db = getPlatformDatabase();
-  return db.capabilityGrants.where('granterDid').equals(granterDid).toArray();
+  return dbFindAll('capabilityGrants', 'granterDid', granterDid);
 };
 
 export const listCapabilityGrantsBySubject = async (subjectDid) => {
-  const db = getPlatformDatabase();
-  return db.capabilityGrants.where('subjectDid').equals(subjectDid).toArray();
+  return dbFindAll('capabilityGrants', 'subjectDid', subjectDid);
 };
 
 export const listCapabilityGrantsByResource = async (resourceId) => {
-  const db = getPlatformDatabase();
-  return db.capabilityGrants.where('resourceId').equals(resourceId).toArray();
+  return dbFindAll('capabilityGrants', 'resourceId', resourceId);
 };
 
 export const deleteCapabilityGrant = async (id) => {
-  const db = getPlatformDatabase();
-  await db.capabilityGrants.delete(id);
+  return dbDelete('capabilityGrants', id);
 };
 
 export const setCapabilityVersion = async ({ resourceId, version, updatedAt }) => {
@@ -447,8 +493,7 @@ export const setCapabilityVersion = async ({ resourceId, version, updatedAt }) =
     throw new Error('setCapabilityVersion requires resourceId');
   }
 
-  const db = getPlatformDatabase();
-  await db.capabilityVersions.put({
+  return dbPut('capabilityVersions', {
     resourceId,
     version,
     updatedAt: updatedAt ?? new Date().toISOString(),
@@ -456,8 +501,7 @@ export const setCapabilityVersion = async ({ resourceId, version, updatedAt }) =
 };
 
 export const getCapabilityVersion = async (resourceId) => {
-  const db = getPlatformDatabase();
-  return db.capabilityVersions.get(resourceId);
+  return dbGet('capabilityVersions', resourceId);
 };
 
 // ========== Login Attempt Tracking (Brute Force Protection) ==========
@@ -468,8 +512,7 @@ export const getCapabilityVersion = async (resourceId) => {
  * @returns {Promise<Object|undefined>}
  */
 export const getLoginAttempts = async (username) => {
-  const db = getPlatformDatabase();
-  return db.loginAttempts.get(username);
+  return dbGet('loginAttempts', username);
 };
 
 /**
@@ -478,10 +521,9 @@ export const getLoginAttempts = async (username) => {
  * @returns {Promise<void>}
  */
 export const recordFailedLogin = async (username) => {
-  const db = getPlatformDatabase();
   const existing = await getLoginAttempts(username);
 
-  await db.loginAttempts.put({
+  return dbPut('loginAttempts', {
     username,
     failedAttempts: (existing?.failedAttempts ?? 0) + 1,
     lastAttempt: new Date().toISOString(),
@@ -495,8 +537,7 @@ export const recordFailedLogin = async (username) => {
  * @returns {Promise<void>}
  */
 export const clearLoginAttempts = async (username) => {
-  const db = getPlatformDatabase();
-  await db.loginAttempts.delete(username);
+  return dbDelete('loginAttempts', username);
 };
 
 /**
