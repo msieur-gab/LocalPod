@@ -418,7 +418,7 @@ export class AccountService {
       return null;
     }
 
-    const payload = {
+    return {
       publicKey: this.currentAccountRecord.publicKey,
       did: this.currentAccountRecord.did,
       encryptedPrivateKey: this.currentAccountRecord.encryptedPrivateKey,
@@ -434,15 +434,6 @@ export class AccountService {
       updatedAt: this.currentAccountRecord.updatedAt ?? new Date().toISOString(),
       createdAt: this.currentAccountRecord.createdAt ?? null,
     };
-
-    console.log('🔍 getBackupPayload() encryption key fields:', {
-      encryptedEncryptionKey: payload.encryptedEncryptionKey ? 'SET' : 'NULL',
-      encryptionKeyIv: payload.encryptionKeyIv ? 'SET' : 'NULL',
-      encryptionSalt: payload.encryptionSalt ? 'SET' : 'NULL',
-      encryptionPublicKey: payload.encryptionPublicKey ? 'SET' : 'NULL',
-    });
-
-    return payload;
   }
 
   /**
