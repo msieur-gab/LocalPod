@@ -646,6 +646,13 @@ export class SimpleStorage {
    * Now stored in private section of unified file
    */
   async saveIdentityBackup(publicKey, payload) {
+    console.log('🔍 saveIdentityBackup() received payload encryption fields:', {
+      encryptedEncryptionKey: payload.encryptedEncryptionKey ? 'SET' : 'NULL',
+      encryptionKeyIv: payload.encryptionKeyIv ? 'SET' : 'NULL',
+      encryptionSalt: payload.encryptionSalt ? 'SET' : 'NULL',
+      encryptionPublicKey: payload.encryptionPublicKey ? 'SET' : 'NULL',
+    });
+
     const existing = await this.loadUnifiedUser(publicKey);
 
     const userPayload = {
@@ -681,6 +688,13 @@ export class SimpleStorage {
         collaborators: existing?.private?.collaborators ?? null,
       },
     };
+
+    console.log('🔍 saveIdentityBackup() will save encryption fields:', {
+      encryptionCipher: userPayload.private.encryptionCipher ? 'SET' : 'NULL',
+      encryptionIv: userPayload.private.encryptionIv ? 'SET' : 'NULL',
+      encryptionSalt: userPayload.private.encryptionSalt ? 'SET' : 'NULL',
+      encryptionPublicKey: userPayload.encryptionPublicKey ? 'SET' : 'NULL',
+    });
 
     await this.saveUnifiedUser(publicKey, userPayload);
   }
