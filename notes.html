@@ -547,7 +547,12 @@
   </script>
 
   <script type="module">
-    import { IdentityPlatform, isValidPublicKey, base58ToBytes } from '@localPod/identity-platform';
+    import {
+      IdentityPlatform,
+      isValidPublicKey,
+      base58ToBytes,
+      DatabaseOps
+    } from '@localPod/identity-platform';
     import { SimpleStorage } from './storage.js';
     import { config } from './config.js';
 
@@ -620,9 +625,13 @@
     const SERVICE_RESOURCE_TEMPLATE = ACTIVE_SERVICE.resourcePathTemplate;
     const STORAGE_KEYS = {
       user: 'localpod_notes_user',
-      grant: 'localpod_notes_grant',
       authChallenge: 'auth_challenge',
       grantState: 'grant_request_state',
+    };
+
+    // Helper to get grant ID for this service
+    const getServiceGrantId = (userDid, serviceDid) => {
+      return `grant:${userDid}:${serviceDid}`;
     };
 
     // State
@@ -726,7 +735,6 @@
 
       // Check for existing session
       const savedUser = localStorage.getItem(STORAGE_KEYS.user);
-      const savedGrant = localStorage.getItem(STORAGE_KEYS.grant);
 
       if (savedUser) {
         currentUser = JSON.parse(savedUser);
@@ -734,18 +742,24 @@
         // Load fresh profile data from storage
         await loadUserProfile();
 
-        if (savedGrant) {
-          try {
-            const grant = JSON.parse(savedGrant);
+        // Load grant from database
+        try {
+          const grantId = getServiceGrantId(currentUser.did, SERVICE_DID);
+          const grantRecord = await DatabaseOps.getCapabilityGrant(grantId);
+
+          if (grantRecord && grantRecord.metadata?.grantPayload) {
+            const grant = grantRecord.metadata.grantPayload;
             if (!isGrantExpired(grant)) {
               currentGrant = grant;
+              console.log('Grant loaded from database:', grantId);
             } else {
-              localStorage.removeItem(STORAGE_KEYS.grant);
+              // Grant expired, delete it
+              await DatabaseOps.deleteCapabilityGrant(grantId);
+              console.log('Expired grant removed from database');
             }
-          } catch (error) {
-            console.warn('Stored grant invalid, clearing:', error);
-            localStorage.removeItem(STORAGE_KEYS.grant);
           }
+        } catch (error) {
+          console.warn('Failed to load grant from database:', error);
         }
 
         if (currentGrant) {
@@ -889,7 +903,7 @@
     }
 
     // Revoke handler function (shared by both buttons)
-    const handleRevoke = () => {
+    const handleRevoke = async () => {
       if (!currentGrant) {
         alert('No active permission to revoke.');
         return;
@@ -899,8 +913,13 @@
       }
 
       try {
-        // Remove grant token
-        localStorage.removeItem(STORAGE_KEYS.grant);
+        // Remove grant from database
+        if (currentUser?.did) {
+          const grantId = getServiceGrantId(currentUser.did, SERVICE_DID);
+          await DatabaseOps.deleteCapabilityGrant(grantId);
+          console.log('Grant deleted from database:', grantId);
+        }
+
         currentGrant = null;
 
         // IMPORTANT: Clear platform instance and storage access
@@ -917,8 +936,8 @@
         showGrantRequest();
         alert('Permission revoked. The service no longer has access to your storage.');
       } catch (error) {
-        console.error('Failed to revoke grant locally:', error);
-        alert('Failed to revoke permission locally. Please try again.');
+        console.error('Failed to revoke grant:', error);
+        alert('Failed to revoke permission. Please try again.');
       }
     };
 
@@ -984,22 +1003,26 @@
 
       localStorage.setItem(STORAGE_KEYS.user, JSON.stringify(currentUser));
       renderUserBadge();
-      const storedGrantRaw = localStorage.getItem(STORAGE_KEYS.grant);
-      if (storedGrantRaw) {
-        try {
-          const storedGrant = JSON.parse(storedGrantRaw);
-          if (storedGrant && !isGrantExpired(storedGrant)) {
-            currentGrant = storedGrant;
+
+      // Load grant from database
+      try {
+        const grantId = getServiceGrantId(currentUser.did, SERVICE_DID);
+        const grantRecord = await DatabaseOps.getCapabilityGrant(grantId);
+
+        if (grantRecord && grantRecord.metadata?.grantPayload) {
+          const grant = grantRecord.metadata.grantPayload;
+          if (!isGrantExpired(grant)) {
+            currentGrant = grant;
           } else {
-            localStorage.removeItem(STORAGE_KEYS.grant);
+            // Grant expired, delete it
+            await DatabaseOps.deleteCapabilityGrant(grantId);
             currentGrant = null;
           }
-        } catch (error) {
-          console.warn('Stored grant could not be parsed, clearing:', error);
-          localStorage.removeItem(STORAGE_KEYS.grant);
+        } else {
           currentGrant = null;
         }
-      } else {
+      } catch (error) {
+        console.warn('Failed to load grant from database:', error);
         currentGrant = null;
       }
 
@@ -1085,16 +1108,51 @@
         console.warn('Grant resource does not match expected path:', grant.resourceId, expectedResourceId);
       }
 
-      currentGrant = grant;
-      localStorage.setItem(STORAGE_KEYS.grant, JSON.stringify(grant));
+      // Save grant to database instead of localStorage
+      const grantId = getServiceGrantId(currentUser.did, SERVICE_DID);
+      const grantRecord = {
+        id: grantId,
+        granterDid: currentUser.did,
+        subjectDid: SERVICE_DID,
+        resourceId: grant.resourceId,
+        rights: Array.isArray(grant.rights) ? grant.rights : grant.rights.split(',').map(r => r.trim()),
+        issuedAt: grant.issuedAt || new Date().toISOString(),
+        expiresAt: grant.expiresAt,
+        metadata: {
+          serviceName: SERVICE_NAME,
+          serviceId: ACTIVE_SERVICE.id,
+          grantPayload: grant, // Store original grant for reference
+        }
+      };
+
+      try {
+        await DatabaseOps.saveCapabilityGrant(grantRecord);
+        currentGrant = grant;
+        console.log('Grant saved to database:', grantId);
+      } catch (error) {
+        console.error('Failed to save grant to database:', error);
+        alert('Failed to save grant. Please try again.');
+        return;
+      }
+
       updateGrantUI();
       await showApp();
     }
 
-    function handleGrantDenied() {
+    async function handleGrantDenied() {
       sessionStorage.removeItem(STORAGE_KEYS.grantState);
       currentGrant = null;
-      localStorage.removeItem(STORAGE_KEYS.grant);
+
+      // Remove grant from database if it exists
+      if (currentUser?.did) {
+        try {
+          const grantId = getServiceGrantId(currentUser.did, SERVICE_DID);
+          await DatabaseOps.deleteCapabilityGrant(grantId);
+        } catch (error) {
+          console.warn('Failed to delete grant from database:', error);
+        }
+      }
+
       updateGrantUI();
       showGrantRequest();
       if (dom.grantStatus) {
@@ -1204,7 +1262,15 @@
       if (!platform || !platform.remoteStorage) {
         alert('Storage access not initialized. Please grant permission again.');
         currentGrant = null;
-        localStorage.removeItem(STORAGE_KEYS.grant);
+        // Clear invalid grant from database
+        if (currentUser?.did) {
+          try {
+            const grantId = getServiceGrantId(currentUser.did, SERVICE_DID);
+            await DatabaseOps.deleteCapabilityGrant(grantId);
+          } catch (error) {
+            console.warn('Failed to delete invalid grant:', error);
+          }
+        }
         showGrantRequest();
         return;
       }
@@ -1351,7 +1417,15 @@
       if (!platform || !platform.remoteStorage) {
         alert('Storage access not initialized. Please grant permission again.');
         currentGrant = null;
-        localStorage.removeItem(STORAGE_KEYS.grant);
+        // Clear invalid grant from database
+        if (currentUser?.did) {
+          try {
+            const grantId = getServiceGrantId(currentUser.did, SERVICE_DID);
+            await DatabaseOps.deleteCapabilityGrant(grantId);
+          } catch (error) {
+            console.warn('Failed to delete invalid grant:', error);
+          }
+        }
         showGrantRequest();
         return;
       }
