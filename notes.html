@@ -830,6 +830,22 @@
             serviceManifest: PLATFORM_SERVICE_MANIFEST,
           });
           await platform.init();
+
+          // Load service grants from IPFS and merge with local database
+          if (remoteStorage && currentUser?.publicKey) {
+            try {
+              const serviceBackup = await remoteStorage.loadServiceBackup(currentUser.publicKey);
+              if (serviceBackup) {
+                await platform.collaboratorService.restoreServicesFromEncryptedBackup(serviceBackup, {
+                  replace: false // Merge mode: keep local grants, add missing from IPFS
+                });
+                console.log('Service grants loaded from IPFS');
+              }
+            } catch (error) {
+              console.warn('Failed to load service grants from IPFS:', error);
+              // Don't fail init if IPFS load fails - local grants still work
+            }
+          }
         } catch (error) {
           console.error('Failed to initialize platform:', error);
           alert('Failed to initialize. Please check your config.js');
@@ -918,6 +934,17 @@
           const grantId = getServiceGrantId(currentUser.did, SERVICE_DID);
           await DatabaseOps.deleteCapabilityGrant(grantId);
           console.log('Grant deleted from database:', grantId);
+
+          // Sync to IPFS (encrypted) BEFORE clearing platform
+          if (platform?.collaboratorService) {
+            try {
+              await platform.collaboratorService.persistServicesToRemote();
+              console.log('Grant revocation synced to IPFS');
+            } catch (error) {
+              console.warn('Failed to sync revocation to IPFS:', error);
+              // Don't fail the whole operation if IPFS sync fails
+            }
+          }
         }
 
         currentGrant = null;
@@ -1129,6 +1156,17 @@
         await DatabaseOps.saveCapabilityGrant(grantRecord);
         currentGrant = grant;
         console.log('Grant saved to database:', grantId);
+
+        // Sync to IPFS (encrypted)
+        if (platform?.collaboratorService) {
+          try {
+            await platform.collaboratorService.persistServicesToRemote();
+            console.log('Grant synced to IPFS');
+          } catch (error) {
+            console.warn('Failed to sync grant to IPFS:', error);
+            // Don't fail the whole operation if IPFS sync fails
+          }
+        }
       } catch (error) {
         console.error('Failed to save grant to database:', error);
         alert('Failed to save grant. Please try again.');

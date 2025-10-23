@@ -2,7 +2,7 @@
  * Identity Platform SDK - Demo Application
  */
 
-import { IdentityPlatform, isPasskeySupported } from '@localPod/identity-platform';
+import { IdentityPlatform, isPasskeySupported, DatabaseOps } from '@localPod/identity-platform';
 import { SimpleStorage } from './storage.js';
 import { config } from './config.js';
 import QRCode from 'qrcode';
@@ -187,6 +187,12 @@ function setupEventListeners() {
   scanner.addEventListener('collaborator-scanned', handleScannedCollaborator);
   scanner.addEventListener('scan-error', (e) => {
     showToast(`Scan error: ${e.detail.error}`, 'error');
+  });
+
+  // Services
+  document.getElementById('btn-refresh-services').addEventListener('click', async () => {
+    await renderServices();
+    showToast('Services refreshed', 'success');
   });
 
   // Profile dialog
@@ -517,6 +523,7 @@ async function showMainApp() {
   await renderIdentity();
   await renderQRCode();
   await renderCollaborators();
+  await renderServices();
   await renderStats();
 }
 
@@ -700,6 +707,66 @@ async function renderCollaborators() {
   } catch (error) {
     console.error('Failed to render collaborators:', error);
     container.innerHTML = '<p class="error">Failed to load collaborators</p>';
+  }
+}
+
+// Render connected services
+async function renderServices() {
+  const container = document.getElementById('services-list');
+
+  if (!currentIdentity) {
+    container.innerHTML = '<p class="empty-state">Please login to view connected services.</p>';
+    return;
+  }
+
+  try {
+    // Load all grants for the current user
+    const grants = await DatabaseOps.listCapabilityGrantsByGranter(currentIdentity.did);
+
+    // Filter to only service grants (exclude collaborator grants)
+    const serviceGrants = grants.filter(grant =>
+      grant.metadata?.serviceName || grant.metadata?.serviceId
+    );
+
+    if (serviceGrants.length === 0) {
+      container.innerHTML = '<p class="empty-state">No connected services yet. Visit a service and grant access to see it here.</p>';
+      return;
+    }
+
+    container.innerHTML = serviceGrants.map(grant => {
+      const serviceName = grant.metadata?.serviceName || 'Unknown Service';
+      const serviceId = grant.metadata?.serviceId || grant.subjectDid;
+      const rights = Array.isArray(grant.rights) ? grant.rights.join(', ') : grant.rights;
+      const resourceId = grant.resourceId || 'N/A';
+      const issuedAt = grant.issuedAt ? new Date(grant.issuedAt).toLocaleDateString() : 'Unknown';
+      const expiresAt = grant.expiresAt ? new Date(grant.expiresAt).toLocaleDateString() : 'Never';
+      const isExpired = grant.expiresAt && new Date(grant.expiresAt) < new Date();
+
+      return `
+        <div class="collaborator-card" data-grant-id="${grant.id}">
+          <div class="collaborator-avatar-placeholder">
+            📱
+          </div>
+          <div class="collaborator-info">
+            <div class="collaborator-header">
+              <div class="collaborator-name">${serviceName}</div>
+              ${isExpired ? '<span class="badge badge-danger">Expired</span>' : '<span class="badge badge-success">Active</span>'}
+            </div>
+            <div class="collaborator-bio">Permissions: ${rights}</div>
+            <div class="collaborator-key">Resource: ${resourceId}</div>
+            <div class="collaborator-key">Granted: ${issuedAt}</div>
+            <div class="collaborator-key">Expires: ${expiresAt}</div>
+          </div>
+          <div class="collaborator-actions">
+            <button class="btn btn-small btn-danger" onclick="handleRevokeService('${grant.id}', '${serviceName.replace(/'/g, "\\'")}')">Revoke Access</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+  } catch (error) {
+    console.error('Failed to render services:', error);
+    container.innerHTML = '<p class="error">Failed to load services</p>';
   }
 }
 
@@ -984,6 +1051,33 @@ async function handleRemoveCollaborator(collabId, displayName) {
 
 // Make it globally available for onclick
 window.handleRemoveCollaborator = handleRemoveCollaborator;
+
+// Handle service revocation
+async function handleRevokeService(grantId, serviceName) {
+  const confirmed = confirm(`Are you sure you want to revoke "${serviceName}" access to your storage?`);
+
+  if (!confirmed) {
+    return;
+  }
+
+  try {
+    console.log('Revoking service grant:', grantId);
+
+    await DatabaseOps.deleteCapabilityGrant(grantId);
+
+    showToast(`${serviceName} access revoked successfully`, 'success');
+
+    // Re-render services
+    await renderServices();
+
+  } catch (error) {
+    console.error('Failed to revoke service grant:', error);
+    showToast('Failed to revoke access: ' + error.message, 'error');
+  }
+}
+
+// Make it globally available for onclick
+window.handleRevokeService = handleRevokeService;
 
 // Profile dialog functions
 function showProfileDialog() {

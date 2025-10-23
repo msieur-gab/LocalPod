@@ -199,6 +199,25 @@
         </div>
       </div>
 
+      <!-- Connected Services Section -->
+      <div class="section">
+        <div class="card">
+          <div class="card-header">
+            <h2>Connected Services</h2>
+            <button id="btn-refresh-services" class="btn btn-secondary">🔄 Refresh</button>
+          </div>
+
+          <p class="info-text">
+            Manage third-party services that have access to your LocalPod storage.
+            You can view permissions and revoke access at any time.
+          </p>
+
+          <div id="services-list" class="collaborators-list">
+            <!-- Populated dynamically -->
+          </div>
+        </div>
+      </div>
+
       <!-- Add Collaborator Form (hidden by default) -->
       <div id="add-collaborator-section" class="section" style="display: none;">
         <div class="card">
