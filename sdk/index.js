@@ -43,6 +43,7 @@ export {
   decryptAndVerifyFromSender,
   PBKDF2_ITERATIONS,
 } from './src/core/crypto.js';
+export { signChallenge } from './src/core/Challenge.js';
 export {
   PasskeySession,
   isPasskeySupported,

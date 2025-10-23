@@ -555,6 +555,11 @@ textarea {
   color: white;
 }
 
+.toast-warn {
+  background: #f59e0b;
+  color: #1f2937;
+}
+
 @keyframes slideIn {
   from {
     transform: translateX(100%);

@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Authentication Callback</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        line-height: 1.5;
+      }
+
+      body {
+        margin: 0;
+        padding: 2rem;
+        background: canvas;
+        color: canvastext;
+      }
+
+      .container {
+        max-width: 800px;
+        margin: 0 auto;
+      }
+
+      h1 {
+        font-size: 1.8rem;
+        margin-bottom: 1rem;
+      }
+
+      .card {
+        background: color-mix(in srgb, canvas 95%, canvastext 5%);
+        border: 1px solid color-mix(in srgb, canvastext 15%, canvas 85%);
+        border-radius: 1rem;
+        padding: 2rem;
+        margin: 1rem 0;
+      }
+
+      .status {
+        padding: 1rem;
+        border-radius: 0.5rem;
+        margin: 1rem 0;
+      }
+
+      .status.success {
+        background: color-mix(in srgb, #1f8724 10%, canvas 90%);
+        color: #1f8724;
+      }
+
+      .status.error {
+        background: color-mix(in srgb, #d12c2c 10%, canvas 90%);
+        color: #d12c2c;
+      }
+
+      .status.info {
+        background: color-mix(in srgb, #2563eb 10%, canvas 90%);
+        color: #2563eb;
+      }
+
+      pre {
+        background: color-mix(in srgb, canvas 90%, canvastext 10%);
+        padding: 1rem;
+        border-radius: 0.5rem;
+        overflow-x: auto;
+        font-size: 0.85rem;
+      }
+
+      .info-row {
+        display: flex;
+        margin: 0.5rem 0;
+        padding: 0.5rem;
+        border-bottom: 1px solid color-mix(in srgb, canvastext 10%, canvas 90%);
+      }
+
+      .info-row .label {
+        font-weight: 600;
+        width: 180px;
+        flex-shrink: 0;
+      }
+
+      .info-row .value {
+        flex: 1;
+        word-break: break-all;
+      }
+
+      .profile-card {
+        display: flex;
+        gap: 1rem;
+        align-items: center;
+        margin-top: 1rem;
+      }
+
+      .profile-avatar {
+        width: 80px;
+        height: 80px;
+        border-radius: 50%;
+        background: color-mix(in srgb, canvastext 20%, canvas 80%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 2rem;
+        font-weight: 600;
+      }
+
+      .profile-avatar img {
+        width: 100%;
+        height: 100%;
+        border-radius: 50%;
+        object-fit: cover;
+      }
+
+      .profile-info {
+        flex: 1;
+      }
+
+      .profile-name {
+        font-size: 1.2rem;
+        font-weight: 600;
+      }
+
+      .profile-username {
+        color: color-mix(in srgb, canvastext 60%, canvas 40%);
+        font-size: 0.9rem;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>🔐 Authentication Callback Handler</h1>
+
+      <div id="status" class="status info">
+        Waiting for authentication response...
+      </div>
+
+      <div id="payload-section" class="card" style="display: none">
+        <h2>Received Payload</h2>
+        <pre id="payload-display"></pre>
+      </div>
+
+      <div id="verification-section" class="card" style="display: none">
+        <h2>Verification Result</h2>
+        <div id="verification-result"></div>
+      </div>
+
+      <div id="profile-section" class="card" style="display: none">
+        <h2>User Profile (from IPFS/Filebase)</h2>
+        <div id="profile-display"></div>
+      </div>
+    </div>
+
+    <script type="importmap">
+      {
+        "imports": {
+          "@localPod/identity-platform": "./sdk/index.js",
+          "dexie": "https://cdn.jsdelivr.net/npm/dexie@3.2.3/+esm",
+          "@noble/curves/ed25519": "https://esm.sh/@noble/curves@1.4.0/ed25519",
+          "@scure/base": "https://cdn.jsdelivr.net/npm/@scure/base@1.1.1/+esm"
+        }
+      }
+    </script>
+
+    <script type="module">
+      import { ed25519 } from '@noble/curves/ed25519';
+      import { base58 } from '@scure/base';
+      import { SimpleStorage } from './storage.js';
+      import { config } from './config.js';
+
+      const MULTICODEC_ED25519_PUB = new Uint8Array([0xed, 0x01]);
+
+      const dom = {
+        status: document.getElementById('status'),
+        payloadSection: document.getElementById('payload-section'),
+        payloadDisplay: document.getElementById('payload-display'),
+        verificationSection: document.getElementById('verification-section'),
+        verificationResult: document.getElementById('verification-result'),
+        profileSection: document.getElementById('profile-section'),
+        profileDisplay: document.getElementById('profile-display'),
+      };
+
+      const encoder = new TextEncoder();
+
+      // Extract public key from did:key
+      function publicKeyFromDid(did) {
+        if (!did || !did.startsWith('did:key:z')) {
+          throw new Error('Invalid DID format');
+        }
+        const encoded = did.slice(9);
+        const identifierBytes = base58.decode(encoded);
+        if (
+          identifierBytes.length !== MULTICODEC_ED25519_PUB.length + 32 ||
+          identifierBytes[0] !== MULTICODEC_ED25519_PUB[0] ||
+          identifierBytes[1] !== MULTICODEC_ED25519_PUB[1]
+        ) {
+          throw new Error('Unsupported DID key type (expected Ed25519)');
+        }
+        return identifierBytes.slice(MULTICODEC_ED25519_PUB.length);
+      }
+
+      // Base64 to bytes
+      function base64ToBytes(base64) {
+        const binary = atob(base64);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) {
+          bytes[i] = binary.charCodeAt(i);
+        }
+        return bytes;
+      }
+
+      // Verify signature
+      async function verifySignature(payload) {
+        try {
+          const publicKey = publicKeyFromDid(payload.did);
+          const signatureBytes = base64ToBytes(payload.signature);
+          const challengeBytes = encoder.encode(payload.challenge);
+
+          const verified = await ed25519.verify(signatureBytes, challengeBytes, publicKey);
+
+          return verified;
+        } catch (error) {
+          console.error('Verification error:', error);
+          throw error;
+        }
+      }
+
+      // Fetch user profile from IPFS/Filebase
+      async function fetchUserProfile(publicKey) {
+        try {
+          if (!config?.filebase?.accessKey) {
+            return null;
+          }
+
+          const storage = new SimpleStorage(config.filebase);
+          const userFile = await storage.loadUnifiedUser(publicKey);
+
+          if (!userFile || !userFile.public) {
+            return null;
+          }
+
+          return userFile.public;
+        } catch (error) {
+          console.error('Failed to fetch profile:', error);
+          return null;
+        }
+      }
+
+      // Handle POST request
+      async function handleCallback(payload) {
+        console.log('Received payload:', payload);
+
+        // Display payload
+        dom.payloadDisplay.textContent = JSON.stringify(payload, null, 2);
+        dom.payloadSection.style.display = 'block';
+
+        // Verify signature
+        dom.status.textContent = 'Verifying signature...';
+        dom.status.className = 'status info';
+
+        try {
+          const verified = await verifySignature(payload);
+
+          dom.verificationSection.style.display = 'block';
+
+          if (verified) {
+            dom.verificationResult.innerHTML = `
+              <div class="info-row">
+                <span class="label">Status:</span>
+                <span class="value" style="color: #1f8724; font-weight: 600;">✓ Signature Valid</span>
+              </div>
+              <div class="info-row">
+                <span class="label">User DID:</span>
+                <span class="value">${payload.did}</span>
+              </div>
+              <div class="info-row">
+                <span class="label">Public Key:</span>
+                <span class="value">${payload.publicKey}</span>
+              </div>
+              <div class="info-row">
+                <span class="label">Encryption Key:</span>
+                <span class="value">${payload.encryptionPublicKey || 'None'}</span>
+              </div>
+              <div class="info-row">
+                <span class="label">Issued At:</span>
+                <span class="value">${new Date(payload.issuedAt).toLocaleString()}</span>
+              </div>
+            `;
+
+            dom.status.textContent = '✓ Signature verified! Fetching profile from IPFS...';
+            dom.status.className = 'status success';
+
+            // Fetch profile from IPFS
+            let profile = null;
+            if (payload.publicKey) {
+              profile = await fetchUserProfile(payload.publicKey);
+            }
+
+            // Store authentication result
+            const authResult = {
+              verified: true,
+              payload,
+              profile,
+              timestamp: new Date().toISOString(),
+            };
+
+            sessionStorage.setItem('auth-result', JSON.stringify(authResult));
+
+            // Redirect back to service
+            dom.status.textContent = '✓ Authentication successful! Redirecting to service...';
+            setTimeout(() => {
+              window.location.href = 'service.html';
+            }, 1500);
+
+          } else {
+            dom.verificationResult.innerHTML = `
+              <div style="color: #d12c2c; font-weight: 600;">✗ Signature verification failed</div>
+            `;
+            dom.status.textContent = '✗ Signature verification failed';
+            dom.status.className = 'status error';
+          }
+
+        } catch (error) {
+          dom.verificationResult.innerHTML = `
+            <div style="color: #d12c2c; font-weight: 600;">✗ Error: ${error.message}</div>
+          `;
+          dom.status.textContent = '✗ Verification error: ' + error.message;
+          dom.status.className = 'status error';
+        }
+      }
+
+      // Listen for POST messages (simulated via postMessage)
+      window.addEventListener('message', (event) => {
+        if (event.data && event.data.type === 'auth-callback') {
+          handleCallback(event.data.payload);
+        }
+      });
+
+      // Parse from URL or localStorage
+      async function init() {
+        // Check if payload in URL hash
+        const hash = window.location.hash.slice(1);
+        if (hash) {
+          try {
+            const payload = JSON.parse(decodeURIComponent(hash));
+            await handleCallback(payload);
+            return;
+          } catch (e) {
+            console.error('Failed to parse hash payload:', e);
+          }
+        }
+
+        // Check localStorage for callback payload
+        const stored = localStorage.getItem('auth-callback-payload');
+        if (stored) {
+          try {
+            const payload = JSON.parse(stored);
+            localStorage.removeItem('auth-callback-payload');
+            await handleCallback(payload);
+            return;
+          } catch (e) {
+            console.error('Failed to parse stored payload:', e);
+          }
+        }
+
+        // Wait for POST or manual input
+        dom.status.textContent = 'Waiting for authentication response...';
+      }
+
+      init();
+    </script>
+  </body>
+</html>

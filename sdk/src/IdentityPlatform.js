@@ -7,6 +7,7 @@
 import { AccountService } from './services/AccountService.js';
 import { ProfileService } from './services/ProfileService.js';
 import { CollaboratorService } from './services/CollaboratorService.js';
+import { signChallenge as signServiceChallengeHelper } from './core/Challenge.js';
 
 /**
  * Identity Platform
@@ -151,6 +152,120 @@ export class IdentityPlatform {
    */
   getCurrentAccount() {
     return this.accountService.getCurrentAccount();
+  }
+
+  /**
+   * Sign a service-issued challenge for redirect-based authentication
+   * @param {Object} params
+   * @param {string} params.challenge - Challenge string issued by the service
+   * @returns {Promise<{did: string, signature: string, challenge: string}>}
+   */
+  async signServiceChallenge({ challenge }) {
+    if (!challenge) {
+      throw new Error('Challenge is required');
+    }
+
+    const identity = this.accountService.requireUnlocked();
+    const privateKey = identity.signingPrivateKey;
+    if (!privateKey) {
+      throw new Error('Signing key unavailable. Unlock your account first.');
+    }
+
+    return signServiceChallengeHelper({
+      challenge,
+      privateKey,
+      did: identity.did,
+    });
+  }
+
+  /**
+   * Sign a challenge and optionally POST the payload to a callback URL.
+   * @param {Object} params
+  * @param {string} params.challenge - Challenge string issued by the service
+  * @param {string} [params.serviceDid] - DID of the requesting service
+  * @param {string} [params.callbackUrl] - HTTPS endpoint to receive the signed payload
+  * @param {boolean} [params.autoSubmit=true] - When true, POST to callback automatically
+  * @returns {Promise<{payload: Object, submitted: boolean, response?: Object}>}
+  */
+  async respondToServiceChallenge({
+    challenge,
+    serviceDid = null,
+    callbackUrl = null,
+    autoSubmit = true,
+  }) {
+    if (!challenge) {
+      throw new Error('Challenge is required');
+    }
+
+    const identity = this.accountService.getUnlockedIdentity();
+    if (!identity) {
+      throw new Error('Identity locked. Unlock before signing challenges.');
+    }
+
+    const signed = await this.signServiceChallenge({ challenge });
+    const payload = {
+      ...signed,
+      serviceDid,
+      publicKey: identity.signingPublicKey || identity.publicKey,
+      encryptionPublicKey: identity.encryptionPublicKey ?? null,
+      issuedAt: new Date().toISOString(),
+    };
+
+    if (!callbackUrl || autoSubmit === false) {
+      return {
+        payload,
+        submitted: false,
+      };
+    }
+
+    let url;
+    try {
+      url = new URL(callbackUrl);
+    } catch {
+      throw new Error('Invalid callback URL supplied');
+    }
+
+    const isLocalhost = url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]';
+    const isSecure = url.protocol === 'https:' || (url.protocol === 'http:' && isLocalhost);
+    if (!isSecure) {
+      throw new Error('Callback URL must be HTTPS (or localhost/127.0.0.1 for development)');
+    }
+
+    try {
+      const response = await fetch(url.toString(), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      let responseBody = null;
+      const rawText = await response.text();
+      if (rawText) {
+        try {
+          responseBody = JSON.parse(rawText);
+        } catch {
+          responseBody = rawText;
+        }
+      }
+
+      return {
+        payload,
+        submitted: true,
+        response: {
+          status: response.status,
+          ok: response.ok,
+          body: responseBody,
+        },
+      };
+    } catch (error) {
+      return {
+        payload,
+        submitted: false,
+        error: error?.message ?? String(error),
+      };
+    }
   }
 
   /**

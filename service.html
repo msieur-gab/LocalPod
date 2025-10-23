@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Service DID Redirect Demo</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        line-height: 1.5;
+      }
+
+      body {
+        margin: 0;
+        padding: 0 1.5rem 4rem;
+        background: canvas;
+        color: canvastext;
+      }
+
+      header,
+      section {
+        max-width: 720px;
+        margin: 2rem auto;
+      }
+
+      h1 {
+        font-size: 1.8rem;
+        margin-bottom: 0.5rem;
+      }
+
+      h2 {
+        font-size: 1.2rem;
+        margin-bottom: 0.5rem;
+      }
+
+      p {
+        margin: 0.3rem 0 1rem;
+      }
+
+      label {
+        display: block;
+        font-weight: 600;
+        margin-bottom: 0.25rem;
+      }
+
+      input,
+      textarea {
+        width: 100%;
+        padding: 0.6rem;
+        font-size: 0.95rem;
+        border-radius: 0.5rem;
+        border: 1px solid color-mix(in srgb, canvastext 15%, canvas 85%);
+        background: color-mix(in srgb, canvas 95%, canvastext 5%);
+        color: canvastext;
+      }
+
+      textarea {
+        min-height: 100px;
+        resize: vertical;
+      }
+
+      button {
+        padding: 0.6rem 1.2rem;
+        border-radius: 999px;
+        border: none;
+        background: color-mix(in srgb, canvastext 85%, canvas 15%);
+        color: color-mix(in srgb, canvas 92%, canvastext 8%);
+        font-weight: 600;
+        cursor: pointer;
+        margin-right: 0.5rem;
+      }
+
+      button.secondary {
+        background: transparent;
+        border: 1px solid color-mix(in srgb, canvastext 30%, canvas 70%);
+        color: canvastext;
+      }
+
+      .output {
+        padding: 0.75rem;
+        border-radius: 0.5rem;
+        background: color-mix(in srgb, canvas 90%, canvastext 10%);
+        font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+        font-size: 0.85rem;
+        overflow-wrap: anywhere;
+      }
+
+      .status {
+        font-weight: 600;
+        margin-top: 0.5rem;
+      }
+
+      .status.ok {
+        color: #1f8724;
+      }
+
+      .status.error {
+        color: #d12c2c;
+      }
+
+      .hint {
+        font-size: 0.85rem;
+        color: color-mix(in srgb, canvastext 60%, canvas 40%);
+      }
+
+      .profile-card {
+        display: flex;
+        gap: 1.5rem;
+        align-items: center;
+        padding: 1rem;
+      }
+
+      .profile-avatar {
+        width: 100px;
+        height: 100px;
+        border-radius: 50%;
+        background: color-mix(in srgb, canvastext 20%, canvas 80%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 2.5rem;
+        font-weight: 600;
+        flex-shrink: 0;
+      }
+
+      .profile-avatar img {
+        width: 100%;
+        height: 100%;
+        border-radius: 50%;
+        object-fit: cover;
+      }
+
+      .profile-info {
+        flex: 1;
+      }
+
+      .profile-name {
+        font-size: 1.5rem;
+        font-weight: 600;
+        margin-bottom: 0.25rem;
+      }
+
+      .profile-username {
+        color: color-mix(in srgb, canvastext 60%, canvas 40%);
+        font-size: 1rem;
+        margin-bottom: 0.5rem;
+      }
+
+      .profile-bio {
+        margin: 0.75rem 0;
+      }
+
+      .profile-detail {
+        font-size: 0.85rem;
+        margin: 0.25rem 0;
+        color: color-mix(in srgb, canvastext 70%, canvas 30%);
+      }
+
+      .profile-detail strong {
+        font-weight: 600;
+        color: canvastext;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Service Redirect Login Demo</h1>
+      <p>
+        This page emulates a third-party service initiating a redirect-based DID login. Use it to generate a challenge,
+        open the deep link in your localPod client, and verify the signed response.
+      </p>
+    </header>
+
+    <!-- Authenticated User Section -->
+    <section id="authenticated-section" style="display: none;">
+      <h2>✓ User Authenticated</h2>
+      <div class="output" style="margin-top: 1rem;">
+        <div id="user-profile"></div>
+      </div>
+      <div style="margin-top: 1rem">
+        <button id="logout-btn">Start New Authentication</button>
+      </div>
+    </section>
+
+    <section id="challenge-section">
+      <h2>1. Generate Challenge</h2>
+      <p class="hint">
+        The service issues a one-time challenge, remembers the nonce, and constructs the redirect link
+        <code>localpod://auth?... </code>
+      </p>
+
+      <label for="service-did-input">Service DID</label>
+      <input
+        id="service-did-input"
+        type="text"
+        value="did:key:z6Mkf5m1X5iYtuoXLiWcZ3t6kYQpo6sDiM8JY2J2RvE5D6Yz"
+        autocomplete="off"
+      />
+
+      <label for="callback-input">Callback URL</label>
+      <input
+        id="callback-input"
+        type="url"
+        value="http://127.0.0.1:5500/callback.html"
+        autocomplete="off"
+      />
+
+      <div style="margin-top: 1rem">
+        <button id="generate-btn">Generate Challenge</button>
+        <button id="reset-btn" class="secondary">Reset</button>
+      </div>
+
+      <div id="challenge-output" class="output" style="margin-top: 1rem"></div>
+      <div id="deep-link-output" class="output" style="margin-top: 0.75rem"></div>
+    </section>
+
+
+    <script type="module">
+      const dom = {
+        serviceDid: document.getElementById('service-did-input'),
+        callback: document.getElementById('callback-input'),
+        challengeOut: document.getElementById('challenge-output'),
+        deepLinkOut: document.getElementById('deep-link-output'),
+        generateBtn: document.getElementById('generate-btn'),
+        resetBtn: document.getElementById('reset-btn'),
+      };
+
+      let currentChallenge = null;
+
+      const bytesToBase64 = (bytes) => {
+        let binary = '';
+        for (let i = 0; i < bytes.length; i += 1) {
+          binary += String.fromCharCode(bytes[i]);
+        }
+        return btoa(binary);
+      };
+
+      const randomChallenge = () => {
+        const bytes = new Uint8Array(32);
+        crypto.getRandomValues(bytes);
+        return bytesToBase64(bytes);
+      };
+
+      const resetState = () => {
+        currentChallenge = null;
+        dom.challengeOut.textContent = '';
+        dom.deepLinkOut.textContent = '';
+      };
+
+      const generateChallenge = () => {
+        try {
+          const serviceDid = dom.serviceDid.value.trim();
+          const callbackUrl = dom.callback.value.trim();
+          if (!serviceDid) {
+            throw new Error('Enter the service DID');
+          }
+          if (!callbackUrl) {
+            throw new Error('Enter the callback URL');
+          }
+
+          const challenge = randomChallenge();
+          currentChallenge = { challenge, serviceDid, callbackUrl, createdAt: new Date().toISOString() };
+
+          const deepLink = new URL('http://127.0.0.1:5500/auth.html');
+          deepLink.searchParams.set('challenge', challenge);
+          deepLink.searchParams.set('service_did', serviceDid);
+          deepLink.searchParams.set('callback_url', callbackUrl);
+
+          const fallback = new URL('https://msieur-gab.github.io/LocalPod/auth.html');
+          const search = new URLSearchParams();
+          search.set('challenge', challenge);
+          search.set('service_did', serviceDid);
+          search.set('callback_url', callbackUrl);
+          fallback.hash = search.toString();
+
+          dom.challengeOut.innerHTML = `
+            <strong>Challenge:</strong> ${challenge}<br />
+            <strong>Issued at:</strong> ${currentChallenge.createdAt}
+          `;
+
+          dom.deepLinkOut.innerHTML = `
+            <strong>Deep Link:</strong><br />
+            <a href="${deepLink.href}">${deepLink.href}</a>
+            <br /><br />
+            <strong>Fallback (if custom scheme is unavailable):</strong><br />
+            <a href="${fallback.href}">${fallback.href}</a>
+          `;
+        } catch (error) {
+          dom.challengeOut.textContent = `Failed to generate challenge: ${error.message}`;
+          dom.deepLinkOut.textContent = '';
+          currentChallenge = null;
+        }
+      };
+
+      dom.generateBtn.addEventListener('click', generateChallenge);
+      dom.resetBtn.addEventListener('click', resetState);
+
+      // Check for authentication result on page load
+      const checkAuthResult = () => {
+        const authResultStr = sessionStorage.getItem('auth-result');
+        if (!authResultStr) return;
+
+        try {
+          const authResult = JSON.parse(authResultStr);
+          if (!authResult.verified) return;
+
+          // Hide challenge section
+          document.getElementById('challenge-section').style.display = 'none';
+
+          // Show authenticated section
+          const authenticatedSection = document.getElementById('authenticated-section');
+          authenticatedSection.style.display = 'block';
+
+          // Display user profile
+          const userProfileDiv = document.getElementById('user-profile');
+          const { payload, profile } = authResult;
+
+          const displayName = profile?.displayName || profile?.username || 'User';
+          const username = profile?.username || '';
+          const bio = profile?.bio || '';
+          const avatar = profile?.avatar || null;
+
+          userProfileDiv.innerHTML = `
+            <div class="profile-card">
+              <div class="profile-avatar">
+                ${avatar ? `<img src="${avatar}" alt="${displayName}" />` : displayName.charAt(0).toUpperCase()}
+              </div>
+              <div class="profile-info">
+                <div class="profile-name">${displayName}</div>
+                ${username ? `<div class="profile-username">@${username}</div>` : ''}
+                ${bio ? `<div class="profile-bio">${bio}</div>` : ''}
+                <div class="profile-detail"><strong>DID:</strong> ${payload.did}</div>
+                <div class="profile-detail"><strong>Public Key:</strong> ${payload.publicKey.slice(0, 20)}...${payload.publicKey.slice(-10)}</div>
+                ${payload.encryptionPublicKey ? `<div class="profile-detail"><strong>Encryption Key:</strong> ${payload.encryptionPublicKey.slice(0, 20)}...${payload.encryptionPublicKey.slice(-10)}</div>` : ''}
+                <div class="profile-detail"><strong>Authenticated:</strong> ${new Date(authResult.timestamp).toLocaleString()}</div>
+              </div>
+            </div>
+          `;
+
+          // Logout button
+          document.getElementById('logout-btn').addEventListener('click', () => {
+            sessionStorage.removeItem('auth-result');
+            window.location.reload();
+          });
+
+        } catch (error) {
+          console.error('Failed to parse auth result:', error);
+          sessionStorage.removeItem('auth-result');
+        }
+      };
+
+      // Check on load
+      checkAuthResult();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LocalPod Authentication</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        line-height: 1.5;
+      }
+
+      body {
+        margin: 0;
+        padding: 2rem;
+        background: canvas;
+        color: canvastext;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+      }
+
+      .container {
+        max-width: 500px;
+        width: 100%;
+      }
+
+      .card {
+        background: color-mix(in srgb, canvas 95%, canvastext 5%);
+        border: 1px solid color-mix(in srgb, canvastext 15%, canvas 85%);
+        border-radius: 1rem;
+        padding: 2rem;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      }
+
+      h1 {
+        font-size: 1.5rem;
+        margin: 0 0 0.5rem;
+      }
+
+      .service-info {
+        background: color-mix(in srgb, canvas 90%, canvastext 10%);
+        border-radius: 0.5rem;
+        padding: 1rem;
+        margin: 1.5rem 0;
+        font-size: 0.9rem;
+      }
+
+      .service-info strong {
+        display: block;
+        margin-bottom: 0.25rem;
+      }
+
+      code {
+        background: color-mix(in srgb, canvas 85%, canvastext 15%);
+        padding: 0.2rem 0.4rem;
+        border-radius: 0.25rem;
+        font-size: 0.85rem;
+        overflow-wrap: break-word;
+      }
+
+      label {
+        display: block;
+        font-weight: 600;
+        margin: 1rem 0 0.25rem;
+      }
+
+      select,
+      input {
+        width: 100%;
+        padding: 0.6rem;
+        font-size: 0.95rem;
+        border-radius: 0.5rem;
+        border: 1px solid color-mix(in srgb, canvastext 15%, canvas 85%);
+        background: color-mix(in srgb, canvas 95%, canvastext 5%);
+        color: canvastext;
+        box-sizing: border-box;
+      }
+
+      button {
+        width: 100%;
+        padding: 0.75rem;
+        border-radius: 0.5rem;
+        border: none;
+        background: color-mix(in srgb, canvastext 85%, canvas 15%);
+        color: color-mix(in srgb, canvas 92%, canvastext 8%);
+        font-weight: 600;
+        font-size: 1rem;
+        cursor: pointer;
+        margin-top: 1rem;
+      }
+
+      button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      button.secondary {
+        background: transparent;
+        border: 1px solid color-mix(in srgb, canvastext 30%, canvas 70%);
+        color: canvastext;
+      }
+
+      .error {
+        color: #d12c2c;
+        background: color-mix(in srgb, #d12c2c 10%, canvas 90%);
+        padding: 0.75rem;
+        border-radius: 0.5rem;
+        margin-top: 1rem;
+        display: none;
+      }
+
+      .success {
+        color: #1f8724;
+        background: color-mix(in srgb, #1f8724 10%, canvas 90%);
+        padding: 0.75rem;
+        border-radius: 0.5rem;
+        margin-top: 1rem;
+        display: none;
+      }
+
+      .status {
+        color: color-mix(in srgb, canvastext 60%, canvas 40%);
+        font-size: 0.9rem;
+        margin-top: 1rem;
+      }
+
+      .hidden {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="card">
+        <h1>🔐 Service Authentication</h1>
+        <p>A service is requesting access to your LocalPod identity.</p>
+
+        <div class="service-info">
+          <strong>Service DID:</strong>
+          <code id="service-did">Loading...</code>
+          <br /><br />
+          <strong>Callback URL:</strong>
+          <code id="callback-url">Loading...</code>
+        </div>
+
+        <!-- Auth Form -->
+        <form id="auth-form">
+          <label for="username">Select Account</label>
+          <select id="username" required>
+            <option value="">Loading accounts...</option>
+          </select>
+
+          <label for="password">Password</label>
+          <input type="password" id="password" required placeholder="Enter your password" />
+
+          <button type="submit" id="submit-btn">Authenticate & Approve</button>
+          <button type="button" class="secondary" id="cancel-btn">Cancel</button>
+        </form>
+
+        <div id="error" class="error"></div>
+        <div id="success" class="success"></div>
+        <div id="status" class="status"></div>
+      </div>
+    </div>
+
+    <!-- Import Maps -->
+    <script type="importmap">
+      {
+        "imports": {
+          "@localPod/identity-platform": "./sdk/index.js",
+          "dexie": "https://cdn.jsdelivr.net/npm/dexie@3.2.3/+esm",
+          "@noble/curves/ed25519": "https://esm.sh/@noble/curves@1.4.0/ed25519",
+          "@scure/base": "https://cdn.jsdelivr.net/npm/@scure/base@1.1.1/+esm"
+        }
+      }
+    </script>
+
+    <script type="module">
+      import { IdentityPlatform } from '@localPod/identity-platform';
+      import { SimpleStorage } from './storage.js';
+      import { config } from './config.js';
+
+      // DOM elements
+      const dom = {
+        serviceDid: document.getElementById('service-did'),
+        callbackUrl: document.getElementById('callback-url'),
+        username: document.getElementById('username'),
+        password: document.getElementById('password'),
+        authForm: document.getElementById('auth-form'),
+        submitBtn: document.getElementById('submit-btn'),
+        cancelBtn: document.getElementById('cancel-btn'),
+        error: document.getElementById('error'),
+        success: document.getElementById('success'),
+        status: document.getElementById('status'),
+      };
+
+      let platform = null;
+      let challengeParams = null;
+
+      // Parse challenge from URL
+      function parseChallenge() {
+        const params = new URLSearchParams(window.location.search);
+        const challenge = params.get('challenge');
+        const serviceDid = params.get('service_did');
+        const callbackUrl = params.get('callback_url');
+        const state = params.get('state');
+
+        if (!challenge || !serviceDid || !callbackUrl) {
+          return null;
+        }
+
+        return { challenge, serviceDid, callbackUrl, state };
+      }
+
+      // Initialize
+      async function init() {
+        try {
+          // Parse challenge
+          challengeParams = parseChallenge();
+          if (!challengeParams) {
+            showError('Invalid authentication request. Missing required parameters.');
+            dom.authForm.style.display = 'none';
+            return;
+          }
+
+          // Display service info
+          dom.serviceDid.textContent = challengeParams.serviceDid;
+          dom.callbackUrl.textContent = challengeParams.callbackUrl;
+
+          // Initialize platform
+          let remoteStorage = null;
+          if (config?.filebase?.accessKey && config.filebase.secretKey && config.filebase.bucket) {
+            try {
+              remoteStorage = new SimpleStorage(config.filebase);
+            } catch (error) {
+              console.warn('Failed to initialize remote storage:', error);
+            }
+          }
+
+          platform = new IdentityPlatform({ remoteStorage });
+          await platform.init();
+
+          // Load accounts
+          const accounts = await platform.listAccounts();
+          if (accounts.length === 0) {
+            showError('No accounts found. Please create an account first.');
+            dom.authForm.style.display = 'none';
+            return;
+          }
+
+          // Populate account dropdown
+          dom.username.innerHTML = '<option value="">Select account...</option>';
+          accounts.forEach(account => {
+            const option = document.createElement('option');
+            option.value = account.username;
+            option.textContent = account.username;
+            dom.username.appendChild(option);
+          });
+
+        } catch (error) {
+          console.error('Initialization failed:', error);
+
+          // Handle database version mismatch
+          if (error.message && error.message.includes('VersionError')) {
+            showError('Database version conflict detected. Please clear your browser data or use an incognito window.');
+          } else {
+            showError('Failed to initialize: ' + error.message);
+          }
+          dom.authForm.style.display = 'none';
+        }
+      }
+
+      // Handle form submission
+      dom.authForm.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        hideMessages();
+
+        const username = dom.username.value;
+        const password = dom.password.value;
+
+        try {
+          dom.submitBtn.disabled = true;
+          dom.status.textContent = 'Unlocking account...';
+
+          // Unlock account
+          const identity = await platform.unlock({ username, password });
+
+          dom.status.textContent = 'Signing challenge...';
+
+          // Sign the challenge
+          const result = await platform.respondToServiceChallenge({
+            challenge: challengeParams.challenge,
+            serviceDid: challengeParams.serviceDid,
+            callbackUrl: challengeParams.callbackUrl,
+            autoSubmit: true,
+          });
+
+          if (result.submitted && result.response?.ok) {
+            showSuccess('Authentication successful! Redirecting back to service...');
+            dom.authForm.style.display = 'none';
+            dom.status.textContent = '';
+
+            // Redirect back to callback with payload
+            setTimeout(() => {
+              window.location.href = challengeParams.callbackUrl + '#' + encodeURIComponent(JSON.stringify(result.payload));
+            }, 1000);
+          } else if (result.submitted && result.response) {
+            showError(`Service returned status ${result.response.status}. Please try again.`);
+            dom.submitBtn.disabled = false;
+          } else if (result.error) {
+            // Failed to submit, redirect with payload in URL
+            showSuccess('Challenge signed! Redirecting to callback...');
+            dom.status.textContent = '';
+            setTimeout(() => {
+              window.location.href = challengeParams.callbackUrl + '#' + encodeURIComponent(JSON.stringify(result.payload));
+            }, 1000);
+          } else {
+            // No callback URL, just show payload
+            showSuccess('Challenge signed. Payload: ' + JSON.stringify(result.payload));
+            dom.submitBtn.disabled = false;
+          }
+
+        } catch (error) {
+          console.error('Authentication failed:', error);
+          showError('Authentication failed: ' + error.message);
+          dom.submitBtn.disabled = false;
+          dom.status.textContent = '';
+        }
+      });
+
+      // Cancel button
+      dom.cancelBtn.addEventListener('click', () => {
+        window.close();
+      });
+
+      // Helper functions
+      function showError(message) {
+        dom.error.textContent = message;
+        dom.error.style.display = 'block';
+      }
+
+      function showSuccess(message) {
+        dom.success.textContent = message;
+        dom.success.style.display = 'block';
+      }
+
+      function hideMessages() {
+        dom.error.style.display = 'none';
+        dom.success.style.display = 'none';
+        dom.status.textContent = '';
+      }
+
+      // Start
+      init();
+    </script>
+  </body>
+</html>
