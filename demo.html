@@ -179,6 +179,61 @@
         </div>
       </div>
 
+      <!-- IPFS Storage Configuration -->
+      <div class="section">
+        <div class="card">
+          <h2>🔑 IPFS Storage Configuration</h2>
+          <p class="info-text">
+            Configure your IPFS pinning provider for sovereign data storage.
+            Your API key is encrypted and stored locally on this device.
+          </p>
+
+          <form id="storage-config-form">
+            <div class="form-group">
+              <label for="ipfs-provider">Provider</label>
+              <select id="ipfs-provider" required>
+                <option value="">Select provider...</option>
+                <option value="pinata">Pinata</option>
+                <option value="scaleway">Scaleway Labs (Coming Soon)</option>
+                <option value="4everland">4everland (Coming Soon)</option>
+              </select>
+              <small id="provider-description">Choose your IPFS pinning service</small>
+            </div>
+
+            <div class="form-group">
+              <label for="provider-jwt">API Key (JWT)</label>
+              <div class="password-input-wrapper">
+                <input type="password" id="provider-jwt" placeholder="Enter your provider API key">
+                <button type="button" class="password-toggle" data-target="provider-jwt" aria-label="Toggle API key visibility">
+                  <svg class="password-toggle-icon eye-show" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12,9A3,3 0 0,1 15,12A3,3 0 0,1 12,15A3,3 0 0,1 9,12A3,3 0 0,1 12,9M12,4.5C17,4.5 21.27,7.61 23,12C21.27,16.39 17,19.5 12,19.5C7,19.5 2.73,16.39 1,12C2.73,7.61 7,4.5 12,4.5M3.18,12C4.83,15.36 8.24,17.5 12,17.5C15.76,17.5 19.17,15.36 20.82,12C19.17,8.64 15.76,6.5 12,6.5C8.24,6.5 4.83,8.64 3.18,12Z" /></svg>
+                  <svg class="password-toggle-icon eye-hide" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" style="display: none;"><path d="M2,5.27L3.28,4L20,20.72L18.73,22L15.65,18.92C14.5,19.3 13.28,19.5 12,19.5C7,19.5 2.73,16.39 1,12C1.69,10.24 2.79,8.69 4.19,7.46L2,5.27M12,9A3,3 0 0,1 15,12C15,12.35 14.94,12.69 14.83,13L11,9.17C11.31,9.06 11.65,9 12,9M12,4.5C17,4.5 21.27,7.61 23,12C22.18,14.08 20.79,15.88 19,17.19L17.58,15.76C18.94,14.82 20.06,13.54 20.82,12C19.17,8.64 15.76,6.5 12,6.5C10.91,6.5 9.84,6.68 8.84,7L7.3,5.47C8.74,4.85 10.33,4.5 12,4.5M3.18,12C4.83,15.36 8.24,17.5 12,17.5C12.69,17.5 13.37,17.43 14,17.29L11.72,15C10.29,14.85 9.15,13.71 9,12.28L5.6,8.87C4.61,9.72 3.78,10.78 3.18,12Z" /></svg>
+                </button>
+              </div>
+              <small id="provider-help-text">Get your API key from your provider's dashboard</small>
+            </div>
+
+            <div class="form-group">
+              <label for="provider-gateway">Gateway URL (Optional)</label>
+              <input type="text" id="provider-gateway" placeholder="gateway.pinata.cloud">
+              <small>Leave empty to use the provider's default gateway</small>
+            </div>
+
+            <div id="storage-config-status" class="info" style="display: none;"></div>
+            <div id="storage-config-error" class="error" style="display: none;"></div>
+
+            <div class="button-group">
+              <button type="submit" class="btn btn-primary">Save Configuration</button>
+              <button type="button" id="btn-clear-storage-config" class="btn btn-secondary">Clear Configuration</button>
+            </div>
+          </form>
+
+          <!-- Provider Help Links -->
+          <div id="provider-help-links" class="info-text" style="margin-top: 1rem; display: none;">
+            <!-- Populated dynamically based on selected provider -->
+          </div>
+        </div>
+      </div>
+
       <!-- Collaborators Section -->
       <div class="section">
         <div class="card">

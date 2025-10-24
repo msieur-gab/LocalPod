@@ -3,7 +3,7 @@
  */
 
 import { IdentityPlatform, isPasskeySupported } from '@localPod/identity-platform';
-import { SimpleStorage } from './storage.js';
+import { SimpleStorage, getStorageConfig, saveStorageConfig, deleteStorageConfig } from './storage.js';
 import { config } from './config.js';
 import QRCode from 'qrcode';
 
@@ -194,6 +194,11 @@ function setupEventListeners() {
   document.getElementById('btn-cancel-profile').addEventListener('click', hideProfileDialog);
   document.getElementById('btn-remove-avatar').addEventListener('click', handleRemoveAvatar);
   document.getElementById('profile-avatar').addEventListener('change', handleAvatarPreview);
+
+  // Storage configuration form
+  document.getElementById('storage-config-form').addEventListener('submit', handleSaveStorageConfig);
+  document.getElementById('btn-clear-storage-config').addEventListener('click', handleClearStorageConfig);
+  document.getElementById('ipfs-provider').addEventListener('change', handleProviderChange);
 
   // Setup password visibility toggles
   setupPasswordToggles();
@@ -518,6 +523,7 @@ async function showMainApp() {
   await renderQRCode();
   await renderCollaborators();
   await renderStats();
+  await loadStorageConfigUI();  // Load storage provider configuration
 }
 
 // Load current user's profile
@@ -1094,6 +1100,213 @@ function readFileAsDataURL(file) {
     reader.readAsDataURL(file);
   });
 }
+
+// =============================================================================
+// STORAGE CONFIGURATION HANDLERS
+// =============================================================================
+
+/**
+ * Handle provider selection change - update help text and links
+ */
+function handleProviderChange(event) {
+  const provider = event.target.value;
+  const helpText = document.getElementById('provider-help-text');
+  const helpLinks = document.getElementById('provider-help-links');
+  const gatewayInput = document.getElementById('provider-gateway');
+
+  // Update help text and placeholder based on provider
+  if (provider === 'pinata') {
+    helpText.textContent = 'Get your free API key at app.pinata.cloud';
+    gatewayInput.placeholder = 'gateway.pinata.cloud';
+    helpLinks.innerHTML = `
+      <p>📘 <strong>Pinata Setup:</strong></p>
+      <ol>
+        <li>Sign up for a free account at <a href="https://app.pinata.cloud" target="_blank">app.pinata.cloud</a></li>
+        <li>Go to API Keys section</li>
+        <li>Create a new API key with upload permissions</li>
+        <li>Copy the JWT token and paste it above</li>
+      </ol>
+      <p><small>Free tier: 1GB storage, 3GB bandwidth/month</small></p>
+    `;
+    helpLinks.style.display = 'block';
+  } else if (provider === 'scaleway') {
+    helpText.textContent = 'Scaleway Labs IPFS - Coming Soon';
+    gatewayInput.placeholder = 'ipfs.scaleway.com';
+    helpLinks.innerHTML = `<p>🇫🇷 Scaleway Labs IPFS provider (French sovereignty) - Implementation coming soon</p>`;
+    helpLinks.style.display = 'block';
+  } else if (provider === '4everland') {
+    helpText.textContent = '4everland - Coming Soon';
+    gatewayInput.placeholder = '4everland.io';
+    helpLinks.innerHTML = `<p>🌐 4everland decentralized storage - Implementation coming soon</p>`;
+    helpLinks.style.display = 'block';
+  } else {
+    helpText.textContent = 'Select a provider above';
+    helpLinks.style.display = 'none';
+  }
+}
+
+/**
+ * Handle save storage configuration
+ */
+async function handleSaveStorageConfig(event) {
+  event.preventDefault();
+
+  const provider = document.getElementById('ipfs-provider').value;
+  const jwt = document.getElementById('provider-jwt').value.trim();
+  const gateway = document.getElementById('provider-gateway').value.trim();
+
+  const statusEl = document.getElementById('storage-config-status');
+  const errorEl = document.getElementById('storage-config-error');
+
+  // Clear previous messages
+  statusEl.style.display = 'none';
+  errorEl.style.display = 'none';
+
+  try {
+    if (!provider) {
+      throw new Error('Please select a provider');
+    }
+
+    if (!jwt) {
+      throw new Error('Please enter your API key');
+    }
+
+    // Validate provider is implemented
+    if (provider !== 'pinata') {
+      throw new Error(`${provider} provider is not yet implemented. Please use Pinata for now.`);
+    }
+
+    // Encrypt the JWT using user's password
+    if (!currentIdentity) {
+      throw new Error('You must be logged in to save storage configuration');
+    }
+
+    // Derive encryption key from user's signing private key (we have it when unlocked)
+    const encoder = new TextEncoder();
+    const jwtBytes = encoder.encode(jwt);
+
+    // Generate random salt and IV
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+
+    // Derive key from user's private key (this is available when unlocked)
+    const keyMaterial = await crypto.subtle.importKey(
+      'raw',
+      currentIdentity.signingPrivateKey,
+      { name: 'PBKDF2' },
+      false,
+      ['deriveBits', 'deriveKey']
+    );
+
+    const encryptionKey = await crypto.subtle.deriveKey(
+      {
+        name: 'PBKDF2',
+        salt: salt,
+        iterations: 100000,
+        hash: 'SHA-256'
+      },
+      keyMaterial,
+      { name: 'AES-GCM', length: 256 },
+      false,
+      ['encrypt', 'decrypt']
+    );
+
+    // Encrypt the JWT
+    const encryptedJwt = await crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv: iv },
+      encryptionKey,
+      jwtBytes
+    );
+
+    // Convert to base64 for storage
+    const encryptedJwtB64 = btoa(String.fromCharCode(...new Uint8Array(encryptedJwt)));
+    const ivB64 = btoa(String.fromCharCode(...iv));
+    const saltB64 = btoa(String.fromCharCode(...salt));
+
+    // Save to IndexedDB
+    await saveStorageConfig({
+      provider: provider,
+      encryptedJwt: encryptedJwtB64,
+      encryptionIv: ivB64,
+      encryptionSalt: saltB64,
+      gateway: gateway || null
+    });
+
+    statusEl.textContent = `✅ ${provider} configuration saved successfully!`;
+    statusEl.style.display = 'block';
+
+    // Clear the JWT input for security
+    document.getElementById('provider-jwt').value = '';
+
+    showToast('Storage configuration saved!', 'success');
+
+  } catch (error) {
+    console.error('Failed to save storage config:', error);
+    errorEl.textContent = error.message;
+    errorEl.style.display = 'block';
+  }
+}
+
+/**
+ * Handle clear storage configuration
+ */
+async function handleClearStorageConfig() {
+  if (!confirm('Are you sure you want to clear your storage configuration? This will remove your API key.')) {
+    return;
+  }
+
+  try {
+    await deleteStorageConfig();
+
+    // Clear form
+    document.getElementById('ipfs-provider').value = '';
+    document.getElementById('provider-jwt').value = '';
+    document.getElementById('provider-gateway').value = '';
+    document.getElementById('provider-help-links').style.display = 'none';
+
+    const statusEl = document.getElementById('storage-config-status');
+    statusEl.textContent = '✅ Storage configuration cleared';
+    statusEl.style.display = 'block';
+
+    showToast('Storage configuration cleared', 'success');
+
+  } catch (error) {
+    console.error('Failed to clear storage config:', error);
+    const errorEl = document.getElementById('storage-config-error');
+    errorEl.textContent = error.message;
+    errorEl.style.display = 'block';
+  }
+}
+
+/**
+ * Load and display current storage configuration
+ */
+async function loadStorageConfigUI() {
+  try {
+    const config = await getStorageConfig();
+
+    if (config) {
+      // Populate the form with saved config (but not the JWT for security)
+      document.getElementById('ipfs-provider').value = config.provider;
+      if (config.gateway) {
+        document.getElementById('provider-gateway').value = config.gateway;
+      }
+
+      // Trigger the change event to update help text
+      document.getElementById('ipfs-provider').dispatchEvent(new Event('change'));
+
+      const statusEl = document.getElementById('storage-config-status');
+      statusEl.textContent = `ℹ️ Current provider: ${config.provider} (configured on ${new Date(config.updatedAt).toLocaleDateString()})`;
+      statusEl.style.display = 'block';
+    }
+  } catch (error) {
+    console.error('Failed to load storage config:', error);
+  }
+}
+
+// =============================================================================
+// UTILITY FUNCTIONS
+// =============================================================================
 
 // Utility: Copy to clipboard (global function for onclick)
 window.copyToClipboard = async function(text) {

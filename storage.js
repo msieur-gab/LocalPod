@@ -35,6 +35,17 @@ db.version(3).stores({
   backups: '&publicKey, updatedAt',
 });
 
+db.version(4).stores({
+  identity: null,
+  accounts: '&username, createdAt',
+  collaborators: '&id, publicKey, addedAt',
+  documents: '&id, updatedAt',
+  sharedKeys: '[docId+publicKey], docId, publicKey',
+  profiles: '&publicKey, updatedAt',
+  backups: '&publicKey, updatedAt',
+  storageConfig: '&id, updatedAt',
+});
+
 // ---------- Account helpers ----------
 
 export const listAccounts = async () => {
@@ -197,6 +208,48 @@ export const saveBackup = async ({ publicKey, cipher, iv, salt, iterations, upda
 export const getBackup = async (publicKey) => {
   if (!publicKey) return null;
   return db.backups.get(publicKey);
+};
+
+// ---------- Storage Config helpers ----------
+
+/**
+ * Save IPFS provider configuration (encrypted)
+ * @param {Object} config
+ * @param {string} config.provider - Provider name ('pinata', 'scaleway', etc.)
+ * @param {string} config.encryptedJwt - Encrypted API key/JWT
+ * @param {string} config.encryptionIv - IV used for encryption
+ * @param {string} config.encryptionSalt - Salt used for key derivation
+ * @param {string} [config.gateway] - Optional gateway URL
+ */
+export const saveStorageConfig = async (config) => {
+  if (!config?.provider || !config?.encryptedJwt || !config?.encryptionIv || !config?.encryptionSalt) {
+    throw new Error('saveStorageConfig requires provider, encryptedJwt, encryptionIv, and encryptionSalt');
+  }
+
+  await db.storageConfig.put({
+    id: 'current', // Always use 'current' as the ID (singleton)
+    provider: config.provider,
+    encryptedJwt: config.encryptedJwt,
+    encryptionIv: config.encryptionIv,
+    encryptionSalt: config.encryptionSalt,
+    gateway: config.gateway || null,
+    updatedAt: new Date().toISOString(),
+  });
+};
+
+/**
+ * Get current storage configuration
+ * @returns {Promise<Object|null>}
+ */
+export const getStorageConfig = async () => {
+  return db.storageConfig.get('current');
+};
+
+/**
+ * Delete storage configuration
+ */
+export const deleteStorageConfig = async () => {
+  await db.storageConfig.delete('current');
 };
 
 // =============================================================================
