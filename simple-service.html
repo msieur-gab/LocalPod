@@ -260,12 +260,23 @@
     async function loadApp() {
       // Load grant from localStorage if available
       const stored = localStorage.getItem('simple-service:grant');
+      console.log('🔍 DEBUG - localStorage raw:', stored);
+
       if (stored) {
         const grant = JSON.parse(stored);
+        console.log('🔍 DEBUG - Parsed grant:', grant);
+
         state.ucanToken = grant.ucanToken;
         state.presignedUrl = grant.presignedUrl;
         state.userPublicKey = grant.userPublicKey;
         state.ipfsCid = grant.ipfsCid || null;
+
+        console.log('🔍 DEBUG - State after restore:', {
+          hasUcan: !!state.ucanToken,
+          hasPresignedUrl: !!state.presignedUrl,
+          userPublicKey: state.userPublicKey,
+          ipfsCid: state.ipfsCid
+        });
 
         // Check if presigned URL expired (1 hour)
         const receivedAt = new Date(grant.receivedAt);
