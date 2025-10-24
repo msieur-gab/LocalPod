@@ -532,12 +532,6 @@
           dom.status.textContent = 'Generating UCAN token...';
           console.log('🔐 Generating UCAN token for service:', grantRequest.serviceDid);
 
-          // Debug: Check private key format
-          console.log('🔍 DEBUG - Private key type:', typeof identity.signingPrivateKey);
-          console.log('🔍 DEBUG - Private key instanceof Uint8Array:', identity.signingPrivateKey instanceof Uint8Array);
-          console.log('🔍 DEBUG - Private key length:', identity.signingPrivateKey?.length);
-          console.log('🔍 DEBUG - Identity object keys:', Object.keys(identity));
-
           const attenuations = grantRights.map(right => ({
             with: actualResourceId,
             can: `storage/${right}`
