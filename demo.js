@@ -1173,10 +1173,18 @@ async function handleSaveStorageConfig(event) {
     const salt = crypto.getRandomValues(new Uint8Array(16));
     const iv = crypto.getRandomValues(new Uint8Array(12));
 
+    // Get the private key bytes from the SDK (it's not exposed in currentIdentity)
+    const privateKeyBytes = platform.accountService.getSigningPrivateKeyBytes();
+    if (!privateKeyBytes) {
+      throw new Error('Private key not available. Please logout and login again.');
+    }
+
+    console.log('🔑 Using private key for encryption:', privateKeyBytes.length, 'bytes');
+
     // Derive encryption key from user's signing private key using HKDF
     const keyMaterial = await crypto.subtle.importKey(
       'raw',
-      currentIdentity.signingPrivateKey,
+      privateKeyBytes,
       { name: 'HKDF' },
       false,
       ['deriveKey']
