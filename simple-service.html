@@ -146,6 +146,7 @@
       ucanToken: null,        // UCAN capability token (7-day expiration)
       presignedUrl: null,     // Presigned upload URL (1-hour expiration)
       userPublicKey: null,    // User's public key for IPFS path
+      ipfsCid: null,          // IPFS CID of the latest uploaded data
       items: []               // Saved items
     };
 
@@ -226,6 +227,7 @@
         ucanToken: grant.ucan,
         presignedUrl: grant.presignedUrl,
         userPublicKey: grant.userPublicKey,
+        ipfsCid: null,  // Will be set after first save
         expiresAt: grant.expiresAt,
         receivedAt: new Date().toISOString()
       }));
@@ -264,6 +266,7 @@
         state.ucanToken = grant.ucanToken;
         state.presignedUrl = grant.presignedUrl;
         state.userPublicKey = grant.userPublicKey;
+        state.ipfsCid = grant.ipfsCid || null;
 
         // Check if presigned URL expired (1 hour)
         const receivedAt = new Date(grant.receivedAt);
@@ -287,18 +290,28 @@
      * Load data from IPFS
      */
     async function loadData() {
+      if (!state.ipfsCid) {
+        console.log('No IPFS CID yet (this is normal for first use)');
+        state.items = [];
+        renderItems();
+        return;
+      }
+
       try {
-        const ipfsUrl = `https://ipfs.filebase.io/ipfs/${state.userPublicKey}/${SERVICE_CONFIG.resourcePath}`;
+        const ipfsUrl = `https://ipfs.filebase.io/ipfs/${state.ipfsCid}`;
+        console.log('📥 Loading data from IPFS:', ipfsUrl);
         const response = await fetch(ipfsUrl);
 
         if (response.ok) {
           const data = await response.json();
           state.items = data.items || [];
+          console.log(`✅ Loaded ${state.items.length} items from IPFS`);
           renderItems();
         }
       } catch (error) {
-        console.log('No existing data found (this is normal for first use)');
+        console.log('Failed to load data from IPFS:', error);
         state.items = [];
+        renderItems();
       }
     }
 
@@ -343,7 +356,20 @@
           throw new Error(`Upload failed: ${response.statusText}`);
         }
 
-        console.log('✅ Saved to IPFS:', item);
+        // Capture IPFS CID from response headers
+        const ipfsCid = response.headers.get('x-amz-meta-cid');
+        if (ipfsCid) {
+          state.ipfsCid = ipfsCid;
+          console.log('✅ Saved to IPFS - CID:', ipfsCid);
+
+          // Update localStorage with new CID
+          const stored = JSON.parse(localStorage.getItem('simple-service:grant') || '{}');
+          stored.ipfsCid = ipfsCid;
+          localStorage.setItem('simple-service:grant', JSON.stringify(stored));
+        } else {
+          console.warn('⚠️ No CID returned from upload');
+        }
+
         showStatus('success', 'Saved to IPFS!');
 
         // Clear inputs
