@@ -146,7 +146,7 @@
       ucanToken: null,        // UCAN capability token (7-day expiration)
       presignedUrl: null,     // Presigned upload URL (1-hour expiration)
       userPublicKey: null,    // User's public key for IPFS path
-      ipfsCid: null,          // IPFS CID of the latest uploaded data
+      ipfsCid: null,          // IPFS CID of the uploaded data
       items: []               // Saved items
     };
 
@@ -227,7 +227,6 @@
         ucanToken: grant.ucan,
         presignedUrl: grant.presignedUrl,
         userPublicKey: grant.userPublicKey,
-        ipfsCid: null,  // Will be set after first save
         expiresAt: grant.expiresAt,
         receivedAt: new Date().toISOString()
       }));
@@ -367,7 +366,7 @@
           stored.ipfsCid = ipfsCid;
           localStorage.setItem('simple-service:grant', JSON.stringify(stored));
         } else {
-          console.warn('⚠️ No CID returned from upload');
+          console.warn('⚠️  No CID returned from upload');
         }
 
         showStatus('success', 'Saved to IPFS!');
