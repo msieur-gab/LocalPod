@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Simple Service - UCAN Demo</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: system-ui, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      padding: 2rem;
+    }
+
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 1rem;
+      padding: 2rem;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    }
+
+    h1 {
+      font-size: 1.5rem;
+      margin-bottom: 0.5rem;
+      color: #1a202c;
+    }
+
+    .subtitle {
+      color: #718096;
+      margin-bottom: 2rem;
+      font-size: 0.9rem;
+    }
+
+    .status {
+      padding: 1rem;
+      border-radius: 0.5rem;
+      margin-bottom: 1rem;
+      text-align: center;
+    }
+
+    .status.info { background: #ebf8ff; color: #2c5282; }
+    .status.success { background: #f0fff4; color: #276749; }
+    .status.error { background: #fff5f5; color: #c53030; }
+
+    button {
+      background: #667eea;
+      color: white;
+      border: none;
+      padding: 0.75rem 1.5rem;
+      border-radius: 0.5rem;
+      font-size: 1rem;
+      cursor: pointer;
+      width: 100%;
+      margin-bottom: 1rem;
+    }
+
+    button:hover { background: #5a67d8; }
+    button:disabled { background: #cbd5e0; cursor: not-allowed; }
+
+    input, textarea {
+      width: 100%;
+      padding: 0.75rem;
+      border: 2px solid #e2e8f0;
+      border-radius: 0.5rem;
+      font-size: 1rem;
+      margin-bottom: 1rem;
+    }
+
+    textarea { min-height: 100px; resize: vertical; }
+
+    .item {
+      padding: 1rem;
+      background: #f7fafc;
+      border-radius: 0.5rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .item-time {
+      font-size: 0.8rem;
+      color: #718096;
+    }
+
+    #auth-section, #app-section { display: none; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>📝 Simple Service</h1>
+    <p class="subtitle">UCAN-powered decentralized service template</p>
+
+    <!-- Authentication Section -->
+    <div id="auth-section">
+      <div class="status info">
+        Click "Connect" to authenticate with LocalPod and grant this service permission to store data in your IPFS.
+      </div>
+      <button id="connect-btn">🔐 Connect with LocalPod</button>
+    </div>
+
+    <!-- Application Section -->
+    <div id="app-section">
+      <div class="status success" id="user-info"></div>
+
+      <h2 style="margin-bottom: 1rem;">Write Content</h2>
+      <input type="text" id="title-input" placeholder="Title..." />
+      <textarea id="content-input" placeholder="Write something..."></textarea>
+      <button id="save-btn">💾 Save to IPFS</button>
+
+      <div id="status-msg"></div>
+
+      <h2 style="margin: 2rem 0 1rem;">Your Content</h2>
+      <div id="items-list"></div>
+    </div>
+  </div>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "@localPod/identity-platform": "./sdk/index.js",
+      "dexie": "https://cdn.jsdelivr.net/npm/dexie@3.2.3/+esm",
+      "@noble/curves/ed25519": "https://esm.sh/@noble/curves@1.4.0/ed25519",
+      "@scure/base": "https://cdn.jsdelivr.net/npm/@scure/base@1.1.1/+esm"
+    }
+  }
+  </script>
+
+  <script type="module">
+    import { IdentityPlatform } from '@localPod/identity-platform';
+
+    // ============================================================
+    // SERVICE CONFIGURATION
+    // ============================================================
+    const SERVICE_CONFIG = {
+      did: 'did:key:z6MkpSimpleServiceExampleDID123456789',
+      name: 'Simple Service',
+      resourcePath: 'simple-service/data.json'
+    };
+
+    // ============================================================
+    // STATE MANAGEMENT
+    // ============================================================
+    let state = {
+      session: null,          // Authentication session from auth.html
+      ucanToken: null,        // UCAN capability token (7-day expiration)
+      presignedUrl: null,     // Presigned upload URL (1-hour expiration)
+      userPublicKey: null,    // User's public key for IPFS path
+      items: []               // Saved items
+    };
+
+    // ============================================================
+    // DOM ELEMENTS
+    // ============================================================
+    const dom = {
+      authSection: document.getElementById('auth-section'),
+      appSection: document.getElementById('app-section'),
+      connectBtn: document.getElementById('connect-btn'),
+      userInfo: document.getElementById('user-info'),
+      titleInput: document.getElementById('title-input'),
+      contentInput: document.getElementById('content-input'),
+      saveBtn: document.getElementById('save-btn'),
+      statusMsg: document.getElementById('status-msg'),
+      itemsList: document.getElementById('items-list')
+    };
+
+    // ============================================================
+    // INITIALIZATION
+    // ============================================================
+    async function init() {
+      console.log('🚀 Simple Service initializing...');
+
+      // Check for callbacks
+      if (window.location.hash) {
+        await handleCallback();
+      } else {
+        // Show authentication UI
+        showAuthSection();
+      }
+    }
+
+    // ============================================================
+    // AUTHENTICATION FLOW
+    // ============================================================
+
+    /**
+     * Step 1: Redirect to auth.html for authentication
+     */
+    function startAuthFlow() {
+      const authUrl = new URL('./auth.html', window.location.origin);
+      authUrl.searchParams.set('service_did', SERVICE_CONFIG.did);
+      authUrl.searchParams.set('service_name', SERVICE_CONFIG.name);
+      authUrl.searchParams.set('callback_url', window.location.href.split('#')[0]);
+
+      console.log('🔐 Redirecting to auth.html...');
+      window.location.href = authUrl.toString();
+    }
+
+    /**
+     * Step 2: Handle auth callback and request grant
+     */
+    async function handleAuthCallback(params) {
+      const session = JSON.parse(decodeURIComponent(params.get('session')));
+
+      console.log('✅ Authentication successful:', session.userDid);
+
+      // Store session temporarily
+      sessionStorage.setItem('simple-service:session', JSON.stringify(session));
+
+      // Immediately request grant
+      requestGrant(session);
+    }
+
+    /**
+     * Step 3: Request UCAN grant + presigned URL
+     */
+    function requestGrant(session) {
+      const grantUrl = new URL('./grant.html', window.location.origin);
+      grantUrl.searchParams.set('service_did', SERVICE_CONFIG.did);
+      grantUrl.searchParams.set('service_name', SERVICE_CONFIG.name);
+      grantUrl.searchParams.set('resource_id', `ipfs://${session.userPublicKey}/${SERVICE_CONFIG.resourcePath}`);
+      grantUrl.searchParams.set('rights', 'read,write');
+      grantUrl.searchParams.set('callback_url', window.location.href.split('#')[0]);
+
+      console.log('📝 Requesting grant...');
+      window.location.href = grantUrl.toString();
+    }
+
+    /**
+     * Step 4: Handle grant callback with UCAN + presigned URL
+     */
+    async function handleGrantCallback(params) {
+      const grant = JSON.parse(decodeURIComponent(params.get('grant')));
+
+      if (!grant.grantApproved) {
+        showStatus('error', 'Grant denied by user');
+        showAuthSection();
+        return;
+      }
+
+      console.log('✅ Grant approved!', {
+        ucan: grant.ucan.substring(0, 50) + '...',
+        expiresAt: grant.expiresAt
+      });
+
+      // Store grant data
+      state.session = JSON.parse(sessionStorage.getItem('simple-service:session'));
+      state.ucanToken = grant.ucan;
+      state.presignedUrl = grant.presignedUrl;
+      state.userPublicKey = grant.userPublicKey;
+
+      // Persist to localStorage for future sessions
+      localStorage.setItem('simple-service:grant', JSON.stringify({
+        ucanToken: grant.ucan,
+        presignedUrl: grant.presignedUrl,
+        userPublicKey: grant.userPublicKey,
+        expiresAt: grant.expiresAt,
+        receivedAt: new Date().toISOString()
+      }));
+
+      // Clear hash and load app
+      window.location.hash = '';
+      await loadApp();
+    }
+
+    // ============================================================
+    // CALLBACK ROUTER
+    // ============================================================
+    async function handleCallback() {
+      const hash = window.location.hash.substring(1);
+      const params = new URLSearchParams(hash);
+
+      if (params.has('session')) {
+        await handleAuthCallback(params);
+      } else if (params.has('grant')) {
+        await handleGrantCallback(params);
+      } else if (params.has('renewed')) {
+        await handleRenewalCallback(params);
+      }
+    }
+
+    // ============================================================
+    // APPLICATION LOGIC
+    // ============================================================
+
+    /**
+     * Load application with existing grant
+     */
+    async function loadApp() {
+      // Load grant from localStorage if available
+      const stored = localStorage.getItem('simple-service:grant');
+      if (stored) {
+        const grant = JSON.parse(stored);
+        state.ucanToken = grant.ucanToken;
+        state.presignedUrl = grant.presignedUrl;
+        state.userPublicKey = grant.userPublicKey;
+
+        // Check if presigned URL expired (1 hour)
+        const receivedAt = new Date(grant.receivedAt);
+        const now = new Date();
+        const hoursPassed = (now - receivedAt) / (1000 * 60 * 60);
+
+        if (hoursPassed >= 1) {
+          console.log('⏰ Presigned URL expired, renewing...');
+          await renewPresignedUrl();
+        }
+      }
+
+      // Load data from IPFS
+      await loadData();
+
+      // Show UI
+      showAppSection();
+    }
+
+    /**
+     * Load data from IPFS
+     */
+    async function loadData() {
+      try {
+        const ipfsUrl = `https://ipfs.filebase.io/ipfs/${state.userPublicKey}/${SERVICE_CONFIG.resourcePath}`;
+        const response = await fetch(ipfsUrl);
+
+        if (response.ok) {
+          const data = await response.json();
+          state.items = data.items || [];
+          renderItems();
+        }
+      } catch (error) {
+        console.log('No existing data found (this is normal for first use)');
+        state.items = [];
+      }
+    }
+
+    /**
+     * Save new item to IPFS
+     */
+    async function saveItem() {
+      const title = dom.titleInput.value.trim();
+      const content = dom.contentInput.value.trim();
+
+      if (!title || !content) {
+        showStatus('error', 'Please enter both title and content');
+        return;
+      }
+
+      try {
+        dom.saveBtn.disabled = true;
+        showStatus('info', 'Saving to IPFS...');
+
+        // Add new item
+        const item = {
+          id: Date.now(),
+          title,
+          content,
+          createdAt: new Date().toISOString()
+        };
+        state.items.unshift(item);
+
+        // Upload to IPFS using presigned URL
+        const data = {
+          items: state.items,
+          updatedAt: new Date().toISOString()
+        };
+
+        const response = await fetch(state.presignedUrl.url, {
+          method: 'PUT',
+          headers: state.presignedUrl.headers,
+          body: JSON.stringify(data, null, 2)
+        });
+
+        if (!response.ok) {
+          throw new Error(`Upload failed: ${response.statusText}`);
+        }
+
+        console.log('✅ Saved to IPFS:', item);
+        showStatus('success', 'Saved to IPFS!');
+
+        // Clear inputs
+        dom.titleInput.value = '';
+        dom.contentInput.value = '';
+
+        // Re-render
+        renderItems();
+
+      } catch (error) {
+        console.error('❌ Save failed:', error);
+        showStatus('error', `Save failed: ${error.message}`);
+        state.items.shift(); // Remove failed item
+      } finally {
+        dom.saveBtn.disabled = false;
+      }
+    }
+
+    /**
+     * Renew presigned URL (silent, no password needed)
+     */
+    async function renewPresignedUrl() {
+      const renewUrl = new URL('./renew-presigned-url.html', window.location.origin);
+      renewUrl.hash = new URLSearchParams({
+        ucan: state.ucanToken,
+        user_publickey: state.userPublicKey,
+        resource_path: SERVICE_CONFIG.resourcePath,
+        callback_url: window.location.href.split('#')[0]
+      }).toString();
+
+      console.log('🔄 Renewing presigned URL...');
+      window.location.href = renewUrl.toString();
+    }
+
+    /**
+     * Handle renewal callback
+     */
+    async function handleRenewalCallback(params) {
+      const renewed = JSON.parse(decodeURIComponent(params.get('renewed')));
+
+      console.log('✅ Presigned URL renewed!');
+
+      // Update presigned URL
+      state.presignedUrl = renewed.presignedUrl;
+
+      // Update localStorage
+      const stored = JSON.parse(localStorage.getItem('simple-service:grant'));
+      stored.presignedUrl = renewed.presignedUrl;
+      stored.receivedAt = renewed.renewedAt;
+      localStorage.setItem('simple-service:grant', JSON.stringify(stored));
+
+      // Clear hash and continue
+      window.location.hash = '';
+      await loadApp();
+    }
+
+    // ============================================================
+    // UI RENDERING
+    // ============================================================
+
+    function showAuthSection() {
+      dom.authSection.style.display = 'block';
+      dom.appSection.style.display = 'none';
+    }
+
+    function showAppSection() {
+      dom.authSection.style.display = 'none';
+      dom.appSection.style.display = 'block';
+      dom.userInfo.textContent = `Connected as ${state.userPublicKey.substring(0, 12)}...`;
+    }
+
+    function showStatus(type, message) {
+      dom.statusMsg.className = `status ${type}`;
+      dom.statusMsg.textContent = message;
+      setTimeout(() => {
+        dom.statusMsg.className = '';
+        dom.statusMsg.textContent = '';
+      }, 3000);
+    }
+
+    function renderItems() {
+      if (state.items.length === 0) {
+        dom.itemsList.innerHTML = '<div class="status info">No items yet. Create your first one above!</div>';
+        return;
+      }
+
+      dom.itemsList.innerHTML = state.items.map(item => `
+        <div class="item">
+          <strong>${escapeHtml(item.title)}</strong>
+          <p>${escapeHtml(item.content)}</p>
+          <div class="item-time">${new Date(item.createdAt).toLocaleString()}</div>
+        </div>
+      `).join('');
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // ============================================================
+    // EVENT LISTENERS
+    // ============================================================
+
+    dom.connectBtn.addEventListener('click', startAuthFlow);
+    dom.saveBtn.addEventListener('click', saveItem);
+
+    // ============================================================
+    // START APPLICATION
+    // ============================================================
+
+    init();
+  </script>
+</body>
+</html>
