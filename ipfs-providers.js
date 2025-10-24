@@ -78,6 +78,11 @@ export class PinataProvider extends IPFSProvider {
       console.log('🔑 JWT length:', this.jwt.length);
       console.log('🔑 JWT (first 50 chars):', this.jwt.substring(0, 50));
 
+      // Debug byte 148 area where error occurs
+      const errorArea = this.jwt.substring(140, 160);
+      console.log('🔍 JWT chars 140-160:', errorArea);
+      console.log('🔍 Char codes:', Array.from(errorArea).map(c => c.charCodeAt(0)));
+
       // Convert JSON to File object
       const jsonString = JSON.stringify(jsonData, null, 2);
       const blob = new Blob([jsonString], { type: 'application/json' });

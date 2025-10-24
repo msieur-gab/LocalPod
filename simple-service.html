@@ -213,6 +213,13 @@
         return;
       }
 
+      // Debug the received JWT
+      if (grant.storageProvider?.config?.jwt) {
+        console.log('📥 Received JWT length:', grant.storageProvider.config.jwt.length);
+        console.log('📥 JWT chars 140-160:', grant.storageProvider.config.jwt.substring(140, 160));
+        console.log('📥 Char codes:', Array.from(grant.storageProvider.config.jwt.substring(140, 160)).map(c => c.charCodeAt(0)));
+      }
+
       console.log('✅ Grant approved!', {
         ucan: grant.ucan.substring(0, 50) + '...',
         expiresAt: grant.expiresAt,
@@ -283,6 +290,13 @@
 
         // Recreate storage provider instance
         if (grant.storageProvider) {
+          // Debug the JWT from localStorage
+          if (grant.storageProvider.config?.jwt) {
+            console.log('💾 localStorage JWT length:', grant.storageProvider.config.jwt.length);
+            console.log('💾 JWT chars 140-160:', grant.storageProvider.config.jwt.substring(140, 160));
+            console.log('💾 Char codes:', Array.from(grant.storageProvider.config.jwt.substring(140, 160)).map(c => c.charCodeAt(0)));
+          }
+
           state.storageProvider = createProvider(
             grant.storageProvider.provider,
             grant.storageProvider.config

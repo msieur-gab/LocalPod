@@ -646,6 +646,13 @@
             state: grantRequest.state
           };
 
+          // Debug the JWT before sending
+          if (storageProvider?.config?.jwt) {
+            console.log('📤 Sending JWT length:', storageProvider.config.jwt.length);
+            console.log('📤 JWT chars 140-160:', storageProvider.config.jwt.substring(140, 160));
+            console.log('📤 Char codes:', Array.from(storageProvider.config.jwt.substring(140, 160)).map(c => c.charCodeAt(0)));
+          }
+
           showSuccess('Grant issued successfully! Redirecting...');
           dom.status.textContent = '';
 
