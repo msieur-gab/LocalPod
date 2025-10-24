@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Renew Presigned URL - LocalPod</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: system-ui, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+    }
+
+    .card {
+      background: white;
+      border-radius: 1rem;
+      padding: 2rem;
+      max-width: 500px;
+      width: 100%;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    }
+
+    h1 {
+      font-size: 1.5rem;
+      margin-bottom: 0.5rem;
+      color: #1a202c;
+    }
+
+    .subtitle {
+      color: #718096;
+      margin-bottom: 2rem;
+      font-size: 0.9rem;
+    }
+
+    .status {
+      text-align: center;
+      padding: 1.5rem;
+      border-radius: 0.5rem;
+      margin: 1rem 0;
+    }
+
+    .status.loading {
+      background: #ebf8ff;
+      color: #2c5282;
+    }
+
+    .status.success {
+      background: #f0fff4;
+      color: #276749;
+    }
+
+    .status.error {
+      background: #fff5f5;
+      color: #c53030;
+    }
+
+    .spinner {
+      border: 3px solid #e2e8f0;
+      border-top: 3px solid #667eea;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 1rem;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>🔄 Renewing Presigned URL</h1>
+    <p class="subtitle">Validating your UCAN token and generating new upload credentials...</p>
+
+    <div class="status loading" id="status">
+      <div class="spinner"></div>
+      <div id="status-text">Validating UCAN token...</div>
+    </div>
+  </div>
+
+  <!-- Import Maps -->
+  <script type="importmap">
+  {
+    "imports": {
+      "@localPod/identity-platform": "./sdk/index.js",
+      "dexie": "https://cdn.jsdelivr.net/npm/dexie@3.2.3/+esm",
+      "@noble/curves/ed25519": "https://esm.sh/@noble/curves@1.4.0/ed25519",
+      "@scure/base": "https://cdn.jsdelivr.net/npm/@scure/base@1.1.1/+esm"
+    }
+  }
+  </script>
+
+  <script type="module">
+    import { IdentityPlatform } from '@localPod/identity-platform';
+    import { SimpleStorage } from './storage.js';
+    import { config } from './config.js';
+
+    const statusEl = document.getElementById('status');
+    const statusTextEl = document.getElementById('status-text');
+
+    function setStatus(type, message) {
+      statusEl.className = `status ${type}`;
+      statusTextEl.textContent = message;
+    }
+
+    /**
+     * Parse renewal request from URL
+     * Expected params:
+     * - ucan: UCAN token from service
+     * - user_publickey: User's public key (for file path)
+     * - resource_path: Path to resource (e.g., "notes/data.json")
+     * - callback_url: Where to redirect after renewal
+     */
+    function parseRenewalRequest() {
+      const params = new URLSearchParams(window.location.search);
+
+      // Also check hash for fallback
+      if (!params.get('ucan') && window.location.hash) {
+        const hash = window.location.hash.startsWith('#')
+          ? window.location.hash.slice(1)
+          : window.location.hash;
+        const hashParams = new URLSearchParams(hash);
+
+        return {
+          ucan: hashParams.get('ucan'),
+          userPublicKey: hashParams.get('user_publickey'),
+          resourcePath: hashParams.get('resource_path'),
+          callbackUrl: hashParams.get('callback_url')
+        };
+      }
+
+      return {
+        ucan: params.get('ucan'),
+        userPublicKey: params.get('user_publickey'),
+        resourcePath: params.get('resource_path'),
+        callbackUrl: params.get('callback_url')
+      };
+    }
+
+    /**
+     * Main renewal flow
+     */
+    async function renewPresignedUrl() {
+      try {
+        // 1. Parse request
+        const request = parseRenewalRequest();
+
+        if (!request.ucan || !request.userPublicKey || !request.resourcePath || !request.callbackUrl) {
+          throw new Error('Missing required parameters: ucan, user_publickey, resource_path, callback_url');
+        }
+
+        console.log('🔄 Renewal request:', {
+          userPublicKey: request.userPublicKey,
+          resourcePath: request.resourcePath,
+          callbackUrl: request.callbackUrl
+        });
+
+        // 2. Initialize platform
+        let remoteStorage = null;
+        if (config?.filebase?.accessKey && config.filebase.secretKey && config.filebase.bucket) {
+          remoteStorage = new SimpleStorage(config.filebase);
+        } else {
+          throw new Error('Remote storage not configured - cannot generate presigned URL');
+        }
+
+        const platform = new IdentityPlatform({ remoteStorage });
+        await platform.init();
+
+        // 3. Validate UCAN token
+        setStatus('loading', 'Validating UCAN token...');
+        console.log('🔐 Validating UCAN...');
+
+        const validation = await platform.capabilityService.validateUCAN(request.ucan);
+
+        if (!validation.valid) {
+          throw new Error(`Invalid UCAN token: ${validation.error}`);
+        }
+
+        console.log('✅ UCAN token valid:', {
+          issuer: validation.payload.iss,
+          audience: validation.payload.aud,
+          expiresAt: new Date(validation.payload.exp * 1000).toISOString()
+        });
+
+        // 4. Generate new presigned URL
+        setStatus('loading', 'Generating new presigned URL...');
+        console.log('📦 Generating presigned URL for:', request.resourcePath);
+
+        const presignedUrl = await remoteStorage.generatePresignedUploadUrl(
+          `${request.userPublicKey}/${request.resourcePath}`,
+          3600,  // 1 hour
+          'application/json'
+        );
+
+        console.log('✅ Presigned URL generated');
+
+        // 5. Success!
+        setStatus('success', 'Presigned URL renewed! Redirecting back...');
+
+        // 6. Redirect back to service with new presigned URL
+        const payload = {
+          success: true,
+          presignedUrl: presignedUrl,
+          renewedAt: new Date().toISOString()
+        };
+
+        setTimeout(() => {
+          window.location.href = `${request.callbackUrl}#renewed=${encodeURIComponent(JSON.stringify(payload))}`;
+        }, 1000);
+
+      } catch (error) {
+        console.error('❌ Renewal failed:', error);
+        setStatus('error', `Renewal failed: ${error.message}`);
+
+        // Redirect back with error after 3 seconds
+        setTimeout(() => {
+          const callbackUrl = parseRenewalRequest().callbackUrl;
+          if (callbackUrl) {
+            window.location.href = `${callbackUrl}#renewal_error=${encodeURIComponent(error.message)}`;
+          }
+        }, 3000);
+      }
+    }
+
+    // Run renewal flow on page load
+    renewPresignedUrl();
+  </script>
+</body>
+</html>
