@@ -3,7 +3,7 @@
  */
 
 import { IdentityPlatform, isPasskeySupported } from '@localPod/identity-platform';
-import { SimpleStorage, getStorageConfig, saveStorageConfig, deleteStorageConfig } from './storage.js';
+import { getStorageConfig, saveStorageConfig, deleteStorageConfig } from './storage.js';
 import { config } from './config.js';
 import QRCode from 'qrcode';
 
@@ -11,7 +11,7 @@ import QRCode from 'qrcode';
 let platform = null;
 let currentIdentity = null;
 let currentProfile = null;
-let hasRemoteStorage = false;
+let hasRemoteStorage = false;  // Removed old S3 storage - profiles are local-only now
 let cachedCollaborators = [];
 
 // Expose for debugging in console
@@ -92,31 +92,16 @@ async function init() {
   console.log('Initializing SDK Demo...');
 
   try {
-    // Configure remote storage using existing Filebase config
-    let remoteStorage = null;
+    // Note: Old Filebase S3 remote storage removed - profiles are now local-only
+    // For IPFS storage, users configure Pinata in the UI below
+    console.log('ℹ️ Profile storage: Local IndexedDB only');
+    console.log('ℹ️ IPFS storage: Configure Pinata below for simple-service.html');
 
-    if (config?.filebase?.accessKey && config.filebase.secretKey && config.filebase.bucket) {
-      try {
-        remoteStorage = new SimpleStorage(config.filebase);
-        hasRemoteStorage = true;
-        console.log('✅ Remote storage configured:', config.filebase.bucket);
-      } catch (error) {
-        console.warn('Failed to initialize remote storage:', error);
-        console.log('Continuing in local-only mode');
-      }
-    } else {
-      console.warn('⚠️ Filebase config not found in config.js');
-      console.log('To enable automatic profile discovery, configure config.js');
-    }
-
-    // Create platform instance
-    platform = new IdentityPlatform({ remoteStorage });
+    // Create platform instance (no remote storage)
+    platform = new IdentityPlatform();
     await platform.init();
 
     console.log('✅ SDK initialized');
-    if (hasRemoteStorage) {
-      console.log('🎉 Automatic profile discovery ENABLED!');
-    }
 
     // Setup event listeners
     setupEventListeners();
