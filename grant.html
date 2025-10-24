@@ -589,7 +589,9 @@
                 encryptedJwt
               );
 
-              const jwt = decoder.decode(decryptedJwt);
+              const jwt = decoder.decode(decryptedJwt).trim();
+              console.log('🔓 Decrypted JWT length:', jwt.length);
+              console.log('🔓 JWT first 50 chars:', jwt.substring(0, 50));
 
               // Build provider configuration object
               storageProvider = {

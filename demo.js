@@ -1167,7 +1167,10 @@ async function handleSaveStorageConfig(event) {
     }
 
     const encoder = new TextEncoder();
-    const jwtBytes = encoder.encode(jwt);
+    const cleanJwt = jwt.trim();
+    console.log('🔐 JWT to encrypt length:', cleanJwt.length);
+    console.log('🔐 JWT first 50 chars:', cleanJwt.substring(0, 50));
+    const jwtBytes = encoder.encode(cleanJwt);
 
     // Generate random salt and IV
     const salt = crypto.getRandomValues(new Uint8Array(16));
