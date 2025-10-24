@@ -14,12 +14,38 @@
 - Users don't control their own IPFS pinning
 - Contradicts the European tech independence vision
 
-### Solution: User-Controlled Pinata
-- Each user brings their own Pinata API key (JWT)
+### Solution: User-Controlled IPFS Providers
+- Each user brings their own IPFS provider API key
 - True data sovereignty: users control their own IPFS pinning
 - Portable CIDs: work on any IPFS gateway
 - Simpler architecture: no AWS signature complexity
-- European-friendly: users can choose providers
+- European-friendly: users can choose providers (Pinata, Scaleway, 4everland, etc.)
+- **Provider abstraction layer** for easy extensibility
+
+---
+
+## Provider Abstraction Strategy
+
+### Phase 1: Pinata as Reference Implementation
+- Implement Pinata first as the working reference provider
+- Design extensible provider interface from day one
+- Document provider interface for future implementations
+
+### Phase 2: Add European Providers (Future)
+Target providers when APIs are compatible:
+- **Scaleway Labs** (French provider - European sovereignty)
+- **4everland** (Decentralized storage network)
+- **Temporal (TemporalX)** (Enterprise IPFS)
+
+### Provider Interface Design
+All providers must implement:
+```javascript
+class IPFSProvider {
+  async upload(jsonData) { /* returns CID */ }
+  async download(cid) { /* returns JSON data */ }
+  getGatewayUrl(cid) { /* returns public URL */ }
+}
+```
 
 ---
 
@@ -55,21 +81,82 @@ User → demo.html (stores Pinata JWT)
 - [ ] Remove `generatePresignedUploadUrl()` method
 - [ ] Remove `generatePresignedDownloadUrl()` method
 - [ ] Remove all AWS signature helper functions (hmac, sha256Hex, etc.)
-- [ ] Add `uploadToPinata(jsonData, pinataJwt)` method
-- [ ] Add `loadFromPinata(cid, pinataGateway)` method
+- [ ] Create provider abstraction layer (base class + provider implementations)
+- [ ] Implement PinataProvider as reference implementation
 - [ ] Keep UCAN generation/validation intact
 
-**New Pinata Methods:**
+**New Provider Architecture:**
 ```javascript
-async uploadToPinata(jsonData, pinataJwt) {
-  // Convert JSON to File object
-  // POST to https://uploads.pinata.cloud/v3/files
-  // Return CID from response
+// Base provider interface
+class IPFSProvider {
+  constructor(config) {
+    this.config = config;
+  }
+
+  async upload(jsonData) {
+    throw new Error('Must implement upload()');
+  }
+
+  async download(cid) {
+    throw new Error('Must implement download()');
+  }
+
+  getGatewayUrl(cid) {
+    throw new Error('Must implement getGatewayUrl()');
+  }
 }
 
-async loadFromPinata(cid, pinataGateway = 'gateway.pinata.cloud') {
-  // GET from https://{gateway}/ipfs/{cid}
-  // Return parsed JSON
+// Pinata implementation
+class PinataProvider extends IPFSProvider {
+  constructor(config) {
+    super(config);
+    this.jwt = config.jwt;
+    this.gateway = config.gateway || 'gateway.pinata.cloud';
+  }
+
+  async upload(jsonData) {
+    // Convert JSON to File object
+    const blob = new Blob([JSON.stringify(jsonData)], { type: 'application/json' });
+    const file = new File([blob], 'data.json');
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    // POST to Pinata
+    const response = await fetch('https://uploads.pinata.cloud/v3/files', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${this.jwt}` },
+      body: formData
+    });
+
+    if (!response.ok) throw new Error(`Upload failed: ${response.statusText}`);
+
+    const result = await response.json();
+    return result.data.cid;
+  }
+
+  async download(cid) {
+    const url = this.getGatewayUrl(cid);
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`Download failed: ${response.statusText}`);
+    return await response.json();
+  }
+
+  getGatewayUrl(cid) {
+    return `https://${this.gateway}/ipfs/${cid}`;
+  }
+}
+
+// Factory function
+function createProvider(providerName, config) {
+  switch (providerName) {
+    case 'pinata':
+      return new PinataProvider(config);
+    // Future: case 'scaleway': return new ScalewayProvider(config);
+    // Future: case '4everland': return new FourEverLandProvider(config);
+    default:
+      throw new Error(`Unknown provider: ${providerName}`);
+  }
 }
 ```
 
@@ -78,24 +165,40 @@ async loadFromPinata(cid, pinataGateway = 'gateway.pinata.cloud') {
 ### 2. `demo.html` (Pod Manager)
 **Current State:** Manages identity, stores S3 credentials (if any)
 **Changes Needed:**
-- [ ] Add Pinata configuration section to UI
-- [ ] Input field for Pinata JWT (API key)
-- [ ] Optional: custom Pinata gateway URL
-- [ ] Store Pinata JWT encrypted in IndexedDB (alongside identity)
+- [ ] Add IPFS provider configuration section to UI
+- [ ] Provider selection dropdown (Pinata for now, extensible for future)
+- [ ] Input field for provider API key/JWT
+- [ ] Optional: custom gateway URL
+- [ ] Store provider config encrypted in IndexedDB (alongside identity)
 - [ ] Remove any S3/Filebase credential management
-- [ ] Add "Get Pinata API Key" link/instructions
+- [ ] Add provider-specific help links
 
 **UI Addition:**
 ```html
 <section>
   <h3>🔑 IPFS Storage Configuration</h3>
-  <label>Pinata JWT Token:</label>
-  <input type="password" id="pinata-jwt" />
-  <button id="save-pinata-config">Save</button>
-  <p class="help">
-    Get your free Pinata API key at
-    <a href="https://app.pinata.cloud" target="_blank">app.pinata.cloud</a>
-  </p>
+
+  <label>Provider:</label>
+  <select id="ipfs-provider">
+    <option value="pinata">Pinata</option>
+    <!-- Future: <option value="scaleway">Scaleway Labs</option> -->
+    <!-- Future: <option value="4everland">4everland</option> -->
+  </select>
+
+  <label>API Key (JWT):</label>
+  <input type="password" id="provider-jwt" />
+
+  <label>Gateway URL (optional):</label>
+  <input type="text" id="provider-gateway" placeholder="gateway.pinata.cloud" />
+
+  <button id="save-storage-config">Save Configuration</button>
+
+  <div id="provider-help">
+    <p class="help">
+      Get your free Pinata API key at
+      <a href="https://app.pinata.cloud" target="_blank">app.pinata.cloud</a>
+    </p>
+  </div>
 </section>
 ```
 
@@ -105,9 +208,11 @@ async loadFromPinata(cid, pinataGateway = 'gateway.pinata.cloud') {
 {
   identity: { ... },
   storage: {
-    provider: 'pinata',
-    pinataJwt: 'encrypted_jwt_here',
-    pinataGateway: 'gateway.pinata.cloud'
+    provider: 'pinata',  // 'pinata' | 'scaleway' | '4everland' (future)
+    config: {
+      jwt: 'encrypted_jwt_here',
+      gateway: 'gateway.pinata.cloud'  // optional, provider-specific
+    }
   }
 }
 ```
@@ -119,9 +224,9 @@ async loadFromPinata(cid, pinataGateway = 'gateway.pinata.cloud') {
 **Changes Needed:**
 - [ ] Remove `generatePresignedUploadUrl()` call
 - [ ] Remove `generatePresignedDownloadUrl()` call
-- [ ] Retrieve Pinata JWT from IndexedDB (user's pod storage config)
-- [ ] Pass Pinata JWT in grant payload instead of presigned URLs
-- [ ] Update UCAN to include `storage_provider: 'pinata'` in facts
+- [ ] Retrieve storage provider config from IndexedDB (user's pod)
+- [ ] Pass provider config in grant payload instead of presigned URLs
+- [ ] Update UCAN to include storage provider info in facts
 
 **Grant Payload Before:**
 ```javascript
@@ -140,10 +245,14 @@ async loadFromPinata(cid, pinataGateway = 'gateway.pinata.cloud') {
 {
   grantApproved: true,
   ucan: ucanToken,
-  pinataJwt: 'user_pinata_jwt_here',
-  pinataGateway: 'gateway.pinata.cloud',
+  storageProvider: {
+    provider: 'pinata',  // provider name
+    config: {
+      jwt: 'user_provider_jwt_here',
+      gateway: 'gateway.pinata.cloud'
+    }
+  },
   userPublicKey: '...',
-  storageProvider: 'pinata',
   ...
 }
 ```
@@ -155,9 +264,10 @@ async loadFromPinata(cid, pinataGateway = 'gateway.pinata.cloud') {
 **Changes Needed:**
 - [ ] Remove presigned URL state management
 - [ ] Remove presigned URL renewal logic
-- [ ] Add Pinata JWT to state
-- [ ] Update `saveItem()` to use Pinata API directly
-- [ ] Update `loadData()` to use Pinata gateway
+- [ ] Add storage provider config to state
+- [ ] Use SDK's provider abstraction (import createProvider)
+- [ ] Update `saveItem()` to use provider.upload()
+- [ ] Update `loadData()` to use provider.download()
 - [ ] Remove dependency on `renew-presigned-url.html`
 
 **State Before:**
@@ -176,43 +286,55 @@ let state = {
 ```javascript
 let state = {
   ucanToken: null,
-  pinataJwt: null,
-  pinataGateway: 'gateway.pinata.cloud',
+  storageProvider: null,  // Will be IPFSProvider instance
   userPublicKey: null,
   ipfsCid: null,
   items: []
 };
 ```
 
-**Upload Logic:**
+**Initialization (handle grant callback):**
+```javascript
+import { createProvider } from './sdk/index.js';
+
+async function handleGrantCallback(params) {
+  const grant = JSON.parse(decodeURIComponent(params.get('grant')));
+
+  // Create provider instance
+  state.storageProvider = createProvider(
+    grant.storageProvider.provider,
+    grant.storageProvider.config
+  );
+
+  state.ucanToken = grant.ucan;
+  state.userPublicKey = grant.userPublicKey;
+
+  // Save to localStorage
+  // ...
+}
+```
+
+**Upload Logic (simplified):**
 ```javascript
 async function saveItem() {
   // ... prepare data ...
 
-  // Upload to Pinata
-  const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
-  const file = new File([blob], 'data.json');
+  const data = {
+    items: state.items,
+    updatedAt: new Date().toISOString()
+  };
 
-  const formData = new FormData();
-  formData.append('file', file);
+  // Upload using provider abstraction
+  state.ipfsCid = await state.storageProvider.upload(data);
 
-  const response = await fetch('https://uploads.pinata.cloud/v3/files', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${state.pinataJwt}`
-    },
-    body: formData
-  });
-
-  const result = await response.json();
-  state.ipfsCid = result.data.cid;
+  console.log('✅ Uploaded to IPFS, CID:', state.ipfsCid);
 
   // Save CID to localStorage
   // ...
 }
 ```
 
-**Download Logic:**
+**Download Logic (simplified):**
 ```javascript
 async function loadData() {
   if (!state.ipfsCid) {
@@ -220,9 +342,8 @@ async function loadData() {
     return;
   }
 
-  const gatewayUrl = `https://${state.pinataGateway}/ipfs/${state.ipfsCid}`;
-  const response = await fetch(gatewayUrl);
-  const data = await response.json();
+  // Download using provider abstraction
+  const data = await state.storageProvider.download(state.ipfsCid);
   state.items = data.items || [];
 }
 ```
@@ -238,15 +359,19 @@ async function loadData() {
 ## Implementation Order
 
 1. ✅ Create branch `feat/pinata-sovereign-storage`
-2. 🔄 Write this migration plan
-3. ⏳ Update SDK (storage.js) - Add Pinata methods
-4. ⏳ Update demo.html - Add Pinata config UI
-5. ⏳ Update grant.html - Pass JWT instead of presigned URLs
-6. ⏳ Update simple-service.html - Use Pinata API
-7. ⏳ Test end-to-end flow
-8. ⏳ Clean up: Remove unused files (renew-presigned-url.html, netlify/functions/*)
-9. ⏳ Update README with Pinata setup instructions
-10. ⏳ Commit and create PR
+2. ✅ Write this migration plan (with provider abstraction design)
+3. ⏳ Update SDK - Remove S3/AWS code
+4. ⏳ Update SDK - Add provider abstraction (IPFSProvider base class)
+5. ⏳ Update SDK - Implement PinataProvider (reference implementation)
+6. ⏳ Update SDK - Add createProvider() factory function
+7. ⏳ Update demo.html - Add provider selection UI
+8. ⏳ Update demo.html - Store provider config encrypted in IndexedDB
+9. ⏳ Update grant.html - Pass provider config instead of presigned URLs
+10. ⏳ Update simple-service.html - Use provider abstraction
+11. ⏳ Test end-to-end flow with real Pinata credentials
+12. ⏳ Clean up: Remove unused files (renew-presigned-url.html, netlify/functions/*)
+13. ⏳ Update README with Pinata setup instructions
+14. ⏳ Commit and create PR
 
 ---
 
@@ -316,19 +441,91 @@ async function loadData() {
 
 ## Future Enhancements
 
-- Support multiple IPFS providers (not just Pinata)
-- Add provider abstraction layer in SDK
+- ✅ Provider abstraction layer (included in Phase 1)
+- Add European providers: Scaleway Labs, 4everland, Temporal
 - Support IPFS Desktop node as provider option
 - Add CID pinning verification UI
 - Add storage usage dashboard
+- Provider health monitoring
+- Automatic failover between providers
 
 ---
 
-## Questions for User
+## How to Add New Providers (Future)
 
-1. Should we support multiple IPFS providers from the start, or focus on Pinata first?
-2. Should Pinata JWT be optional (fallback to read-only IPFS gateway)?
-3. Do you want a "demo mode" that works without any API keys for trying it out?
+When APIs become available for Scaleway, 4everland, or Temporal, adding them is straightforward:
+
+### Step 1: Create Provider Class
+```javascript
+// sdk/providers/scaleway.js
+class ScalewayProvider extends IPFSProvider {
+  constructor(config) {
+    super(config);
+    this.apiKey = config.apiKey;
+    this.region = config.region || 'fr-par';
+  }
+
+  async upload(jsonData) {
+    // Implement Scaleway-specific upload
+  }
+
+  async download(cid) {
+    // Implement Scaleway-specific download
+  }
+
+  getGatewayUrl(cid) {
+    return `https://ipfs.scaleway.com/ipfs/${cid}`;
+  }
+}
+```
+
+### Step 2: Register in Factory
+```javascript
+// sdk/index.js
+function createProvider(providerName, config) {
+  switch (providerName) {
+    case 'pinata':
+      return new PinataProvider(config);
+    case 'scaleway':
+      return new ScalewayProvider(config);  // NEW
+    default:
+      throw new Error(`Unknown provider: ${providerName}`);
+  }
+}
+```
+
+### Step 3: Add to UI
+```html
+<!-- demo.html -->
+<select id="ipfs-provider">
+  <option value="pinata">Pinata</option>
+  <option value="scaleway">Scaleway Labs (France)</option>  <!-- NEW -->
+</select>
+```
+
+**That's it!** The rest of the code (grant.html, simple-service.html) works unchanged due to the abstraction layer.
+
+---
+
+## Target European Providers
+
+### Scaleway Labs (France)
+- **Status:** Available (Labs product)
+- **API:** CLI-based, needs REST API investigation
+- **Sovereignty:** 🇫🇷 French company, European data centers
+- **Tier:** Pricing TBD
+
+### 4everland
+- **Status:** Available
+- **API:** Compatible with IPFS Pinning Service API
+- **Sovereignty:** Decentralized network
+- **Tier:** Free tier available
+
+### Temporal (TemporalX)
+- **Status:** Available
+- **API:** Full REST API
+- **Sovereignty:** Enterprise-focused
+- **Tier:** Paid plans
 
 ---
 
