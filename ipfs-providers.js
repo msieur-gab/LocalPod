@@ -64,7 +64,7 @@ export class PinataProvider extends IPFSProvider {
     this.gateway = config.gateway || 'gateway.pinata.cloud';
     // Use CORS proxy for testing (remove in production)
     this.corsProxy = 'https://corsproxy.io/?';
-    this.uploadEndpoint = 'https://uploads.pinata.cloud/v3/files';
+    this.uploadEndpoint = 'https://api.pinata.cloud/pinning/pinFileToIPFS';
   }
 
   /**
@@ -74,7 +74,8 @@ export class PinataProvider extends IPFSProvider {
    */
   async upload(jsonData) {
     try {
-      console.log('📤 Uploading to Pinata...');
+      console.log('📤 Uploading to Pinata v1 API...');
+      console.log('🔑 JWT length:', this.jwt.length);
       console.log('🔑 JWT (first 50 chars):', this.jwt.substring(0, 50));
 
       // Convert JSON to File object
@@ -86,8 +87,10 @@ export class PinataProvider extends IPFSProvider {
       const formData = new FormData();
       formData.append('file', file);
 
-      // Upload to Pinata v3 API with CORS proxy
+      // Upload to Pinata v1 API with CORS proxy
       const uploadUrl = this.corsProxy + encodeURIComponent(this.uploadEndpoint);
+      console.log('📡 Upload URL:', uploadUrl);
+
       const response = await fetch(uploadUrl, {
         method: 'POST',
         headers: {
@@ -96,15 +99,19 @@ export class PinataProvider extends IPFSProvider {
         body: formData
       });
 
+      console.log('📥 Response status:', response.status);
+
       if (!response.ok) {
         const errorText = await response.text();
+        console.error('❌ Error response:', errorText);
         throw new Error(`Pinata upload failed (${response.status}): ${errorText}`);
       }
 
       const result = await response.json();
+      console.log('✅ Response:', result);
 
-      // Pinata v3 API returns: { data: { cid, ... } }
-      const cid = result.data?.cid || result.IpfsHash;
+      // Pinata v1 API returns: { IpfsHash, ... }
+      const cid = result.IpfsHash;
 
       if (!cid) {
         throw new Error('No CID returned from Pinata');
