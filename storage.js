@@ -398,6 +398,92 @@ export class SimpleStorage {
     return this.putObject(key, payload, finalContentType ?? 'application/octet-stream');
   }
 
+  /**
+   * Generate a presigned URL for PUT upload
+   * Allows third-party services to upload directly to Filebase without having secret keys
+   *
+   * @param {string} key - S3 object key (e.g., "userPublicKey/notes/data.json")
+   * @param {number} expiresIn - URL expiration in seconds (default: 1 hour)
+   * @param {string} contentType - Content-Type header (default: application/json)
+   * @returns {Promise<{url: string, method: string, expiresAt: string, headers: Object}>}
+   *
+   * @example
+   * const presigned = await storage.generatePresignedUploadUrl('user123/notes/doc.json', 3600);
+   * // Service can now upload:
+   * await fetch(presigned.url, {
+   *   method: presigned.method,
+   *   headers: presigned.headers,
+   *   body: JSON.stringify({ content: 'Hello' })
+   * });
+   */
+  async generatePresignedUploadUrl(key, expiresIn = 3600, contentType = 'application/json') {
+    // Calculate expiration timestamp
+    const now = new Date();
+    const expirationDate = new Date(now.getTime() + expiresIn * 1000);
+    const expiresAt = expirationDate.toISOString();
+
+    // AWS4 signature date format
+    const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, '');
+    const dateStamp = amzDate.slice(0, 8);
+
+    // Build canonical request for presigned URL
+    // For presigned URLs, we use query parameters instead of headers
+    const uri = canonicalUri(this.bucket, key);
+    const credentialScope = `${dateStamp}/${this.region}/s3/aws4_request`;
+    const credential = `${this.accessKey}/${credentialScope}`;
+
+    // Query parameters for presigned URL (alphabetically sorted)
+    const queryParams = [
+      `X-Amz-Algorithm=AWS4-HMAC-SHA256`,
+      `X-Amz-Credential=${encodeURIComponent(credential)}`,
+      `X-Amz-Date=${amzDate}`,
+      `X-Amz-Expires=${expiresIn}`,
+      `X-Amz-SignedHeaders=host`
+    ].join('&');
+
+    // Canonical request for presigned URL
+    const canonicalRequest = [
+      'PUT',
+      uri,
+      queryParams,
+      `host:${this.host}`,  // Only host header needed for presigned URLs
+      '',
+      'host',  // Signed headers
+      'UNSIGNED-PAYLOAD'  // For presigned URLs, payload is not hashed
+    ].join('\n');
+
+    // String to sign
+    const stringToSign = [
+      'AWS4-HMAC-SHA256',
+      amzDate,
+      credentialScope,
+      await sha256Hex(encoder.encode(canonicalRequest))
+    ].join('\n');
+
+    // Calculate signature
+    const signingKey = await getSignatureKey(this.secretKey, dateStamp, this.region, 's3');
+    const signature = bufferToHex(await hmac(signingKey, stringToSign));
+
+    // Build final presigned URL
+    const presignedUrl = `${this.baseUrl}${uri}?${queryParams}&X-Amz-Signature=${signature}`;
+
+    console.log('✅ Generated presigned upload URL:', {
+      key,
+      expiresIn: `${expiresIn}s`,
+      expiresAt,
+      contentType
+    });
+
+    return {
+      url: presignedUrl,
+      method: 'PUT',
+      expiresAt,
+      headers: {
+        'Content-Type': contentType
+      }
+    };
+  }
+
   async loadObject(key, fallback = null) {
     const result = await this.getObject(key, { responseType: 'json' });
     return result ?? fallback;
