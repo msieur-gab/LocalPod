@@ -263,7 +263,7 @@
     </script>
 
     <script type="module">
-      import { IdentityPlatform, isValidPublicKey, base58ToBytes } from '@localPod/identity-platform';
+      import { IdentityPlatform, DatabaseOps, isValidPublicKey, base58ToBytes } from '@localPod/identity-platform';
       import { SimpleStorage } from './storage.js';
       import { config } from './config.js';
 
@@ -504,20 +504,9 @@
           // Unlock account
           const identity = await platform.unlock({ username, password });
 
-          dom.status.textContent = 'Issuing capability grant...';
-
-          const serviceDetails =
-            targetService ?? sanitizeService(platform.getServiceByDid(grantRequest.serviceDid));
-          if (!serviceDetails || !serviceDetails.encryptionPublicKey) {
-            showError('Service encryption public key is missing. Update config.js before approving.');
-            dom.status.textContent = '';
-            dom.approveBtn.disabled = false;
-            dom.denyBtn.disabled = false;
-            return;
-          }
-
+          // Normalize rights
           const grantRights = normalizeRights(
-            grantRequest.rights.length > 0 ? grantRequest.rights : serviceDetails.requestedRights,
+            grantRequest.rights.length > 0 ? grantRequest.rights : ['read', 'write']
           );
           if (grantRights.length === 0) {
             showError('Capability rights are missing. Cannot issue grant.');
@@ -527,29 +516,98 @@
             return;
           }
 
-          // Issue grant using SDK
-          const grant = await platform.issueCapabilityGrant({
+          // 1. Generate UCAN token
+          dom.status.textContent = 'Generating UCAN token...';
+          console.log('🔐 Generating UCAN token for service:', grantRequest.serviceDid);
+
+          const attenuations = grantRights.map(right => ({
+            with: grantRequest.resourceId,
+            can: `storage/${right}`
+          }));
+
+          const ucanToken = await platform.capabilityService.createUCAN({
+            issuerDid: identity.did,
+            issuerPrivateKey: identity.signingPrivateKey,
+            audienceDid: grantRequest.serviceDid,
+            attenuations: attenuations,
+            expiresIn: 7 * 24 * 60 * 60,  // 7 days
+            metadata: {
+              serviceName: targetService?.name || 'Unknown Service',
+              grantedAt: new Date().toISOString()
+            }
+          });
+
+          console.log('✅ UCAN token generated');
+
+          // 2. Generate presigned URL (if remote storage available)
+          let presignedUrl = null;
+          if (platform.remoteStorage) {
+            dom.status.textContent = 'Generating presigned URL...';
+            console.log('📦 Generating presigned upload URL');
+
+            // Extract path from resourceId (e.g., ipfs://publicKey/notes/* -> notes/)
+            const resourcePath = grantRequest.resourceId
+              .replace(`ipfs://${identity.publicKey}/`, '')
+              .replace('*', 'data.json');  // Replace wildcard with default filename
+
+            presignedUrl = await platform.remoteStorage.generatePresignedUploadUrl(
+              `${identity.publicKey}/${resourcePath}`,
+              3600,  // 1 hour expiration
+              'application/json'
+            );
+
+            console.log('✅ Presigned URL generated (expires in 1 hour)');
+          } else {
+            console.warn('⚠️  No remote storage configured - presigned URL not generated');
+          }
+
+          // 3. Save grant to IndexedDB (for user's reference in demo.html)
+          dom.status.textContent = 'Saving grant...';
+
+          const grantId = `grant:${identity.did}:${grantRequest.serviceDid}`;
+          const grantRecord = {
+            id: grantId,
+            granterDid: identity.did,
             subjectDid: grantRequest.serviceDid,
-            subjectEncryptionPublicKey: serviceDetails.encryptionPublicKey,
             resourceId: grantRequest.resourceId,
             rights: grantRights,
-            expiresAt: grantRequest.expiresAt,
+            ucanToken: ucanToken,  // Store UCAN for renewal
+            issuedAt: new Date().toISOString(),
+            expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
             metadata: {
-              issuedAt: new Date().toISOString(),
-              issuer: identity.did,
-            },
-          });
+              serviceName: targetService?.name || 'Unknown Service',
+              grantedVia: 'ucan'
+            }
+          };
+
+          await DatabaseOps.saveCapabilityGrant(grantRecord);
+          console.log('✅ Grant saved to IndexedDB');
+
+          // 4. Prepare payload for service
+          const grantPayload = {
+            grantApproved: true,
+            ucan: ucanToken,
+            presignedUrl: presignedUrl,
+            userDid: identity.did,
+            userPublicKey: identity.publicKey,
+            resourceId: grantRequest.resourceId,
+            rights: grantRights,
+            expiresAt: grantRecord.expiresAt,
+            state: grantRequest.state
+          };
 
           showSuccess('Grant issued successfully! Redirecting...');
           dom.status.textContent = '';
 
-          // Send grant back to service
+          console.log('🎉 UCAN grant complete! Returning to service...');
+
+          // 5. Send grant back to service
           if (window.opener) {
             // Popup mode
             window.opener.postMessage(
               {
                 type: 'grant_issued',
-                grant,
+                grant: grantPayload,
                 state: grantRequest.state,
               },
               grantRequest.callbackUrl
@@ -558,7 +616,7 @@
           } else {
             // Redirect mode
             setTimeout(() => {
-              window.location.href = `${grantRequest.callbackUrl}#grant=${encodeURIComponent(JSON.stringify(grant))}`;
+              window.location.href = `${grantRequest.callbackUrl}#grant=${encodeURIComponent(JSON.stringify(grantPayload))}`;
             }, 1000);
           }
 
