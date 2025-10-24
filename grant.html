@@ -263,7 +263,7 @@
     </script>
 
     <script type="module">
-      import { IdentityPlatform, DatabaseOps, isValidPublicKey, base58ToBytes } from '@localPod/identity-platform';
+      import { IdentityPlatform, DatabaseOps, isValidPublicKey, base58ToBytes, bytesToBase58 } from '@localPod/identity-platform';
       import { SimpleStorage } from './storage.js';
       import { config } from './config.js';
 
@@ -502,7 +502,19 @@
           dom.status.textContent = 'Unlocking account...';
 
           // Unlock account
-          const identity = await platform.unlock({ username, password });
+          await platform.unlock({ username, password });
+
+          // Get full identity with private keys (for internal SDK use only)
+          const identity = platform.accountService.requireUnlocked();
+
+          // Convert publicKey bytes to base58 string
+          const publicKeyString = bytesToBase58(identity.signingPublicKey);
+
+          // Replace USER_PUBLIC_KEY placeholder with actual public key
+          const actualResourceId = grantRequest.resourceId.replace('USER_PUBLIC_KEY', publicKeyString);
+
+          // Update UI to show actual resource ID
+          dom.resourceId.textContent = actualResourceId;
 
           // Normalize rights
           const grantRights = normalizeRights(
@@ -520,8 +532,14 @@
           dom.status.textContent = 'Generating UCAN token...';
           console.log('🔐 Generating UCAN token for service:', grantRequest.serviceDid);
 
+          // Debug: Check private key format
+          console.log('🔍 DEBUG - Private key type:', typeof identity.signingPrivateKey);
+          console.log('🔍 DEBUG - Private key instanceof Uint8Array:', identity.signingPrivateKey instanceof Uint8Array);
+          console.log('🔍 DEBUG - Private key length:', identity.signingPrivateKey?.length);
+          console.log('🔍 DEBUG - Identity object keys:', Object.keys(identity));
+
           const attenuations = grantRights.map(right => ({
-            with: grantRequest.resourceId,
+            with: actualResourceId,
             can: `storage/${right}`
           }));
 
@@ -546,12 +564,12 @@
             console.log('📦 Generating presigned upload URL');
 
             // Extract path from resourceId (e.g., ipfs://publicKey/notes/* -> notes/)
-            const resourcePath = grantRequest.resourceId
-              .replace(`ipfs://${identity.publicKey}/`, '')
+            const resourcePath = actualResourceId
+              .replace(`ipfs://${publicKeyString}/`, '')
               .replace('*', 'data.json');  // Replace wildcard with default filename
 
             presignedUrl = await platform.remoteStorage.generatePresignedUploadUrl(
-              `${identity.publicKey}/${resourcePath}`,
+              `${publicKeyString}/${resourcePath}`,
               3600,  // 1 hour expiration
               'application/json'
             );
@@ -569,7 +587,7 @@
             id: grantId,
             granterDid: identity.did,
             subjectDid: grantRequest.serviceDid,
-            resourceId: grantRequest.resourceId,
+            resourceId: actualResourceId,
             rights: grantRights,
             ucanToken: ucanToken,  // Store UCAN for renewal
             issuedAt: new Date().toISOString(),
@@ -589,8 +607,8 @@
             ucan: ucanToken,
             presignedUrl: presignedUrl,
             userDid: identity.did,
-            userPublicKey: identity.publicKey,
-            resourceId: grantRequest.resourceId,
+            userPublicKey: publicKeyString,
+            resourceId: actualResourceId,
             rights: grantRights,
             expiresAt: grantRecord.expiresAt,
             state: grantRequest.state
