@@ -143,7 +143,6 @@
     // STATE MANAGEMENT
     // ============================================================
     let state = {
-      session: null,          // Authentication session from auth.html
       ucanToken: null,        // UCAN capability token (7-day expiration)
       presignedUrl: null,     // Presigned upload URL (1-hour expiration)
       userPublicKey: null,    // User's public key for IPFS path
@@ -185,50 +184,23 @@
     // ============================================================
 
     /**
-     * Step 1: Redirect to auth.html for authentication
+     * Step 1: Request UCAN grant directly
+     * Note: grant.html handles authentication internally if user not logged in
      */
     function startAuthFlow() {
-      const authUrl = new URL('./auth.html', window.location.origin);
-      authUrl.searchParams.set('service_did', SERVICE_CONFIG.did);
-      authUrl.searchParams.set('service_name', SERVICE_CONFIG.name);
-      authUrl.searchParams.set('callback_url', window.location.href.split('#')[0]);
-
-      console.log('🔐 Redirecting to auth.html...');
-      window.location.href = authUrl.toString();
-    }
-
-    /**
-     * Step 2: Handle auth callback and request grant
-     */
-    async function handleAuthCallback(params) {
-      const session = JSON.parse(decodeURIComponent(params.get('session')));
-
-      console.log('✅ Authentication successful:', session.userDid);
-
-      // Store session temporarily
-      sessionStorage.setItem('simple-service:session', JSON.stringify(session));
-
-      // Immediately request grant
-      requestGrant(session);
-    }
-
-    /**
-     * Step 3: Request UCAN grant + presigned URL
-     */
-    function requestGrant(session) {
       const grantUrl = new URL('./grant.html', window.location.origin);
       grantUrl.searchParams.set('service_did', SERVICE_CONFIG.did);
       grantUrl.searchParams.set('service_name', SERVICE_CONFIG.name);
-      grantUrl.searchParams.set('resource_id', `ipfs://${session.userPublicKey}/${SERVICE_CONFIG.resourcePath}`);
+      grantUrl.searchParams.set('resource_id', `ipfs://USER_PUBLIC_KEY/${SERVICE_CONFIG.resourcePath}`);
       grantUrl.searchParams.set('rights', 'read,write');
       grantUrl.searchParams.set('callback_url', window.location.href.split('#')[0]);
 
-      console.log('📝 Requesting grant...');
+      console.log('🔐 Requesting grant...');
       window.location.href = grantUrl.toString();
     }
 
     /**
-     * Step 4: Handle grant callback with UCAN + presigned URL
+     * Step 2: Handle grant callback with UCAN + presigned URL
      */
     async function handleGrantCallback(params) {
       const grant = JSON.parse(decodeURIComponent(params.get('grant')));
@@ -245,7 +217,6 @@
       });
 
       // Store grant data
-      state.session = JSON.parse(sessionStorage.getItem('simple-service:session'));
       state.ucanToken = grant.ucan;
       state.presignedUrl = grant.presignedUrl;
       state.userPublicKey = grant.userPublicKey;
@@ -271,9 +242,7 @@
       const hash = window.location.hash.substring(1);
       const params = new URLSearchParams(hash);
 
-      if (params.has('session')) {
-        await handleAuthCallback(params);
-      } else if (params.has('grant')) {
+      if (params.has('grant')) {
         await handleGrantCallback(params);
       } else if (params.has('renewed')) {
         await handleRenewalCallback(params);
