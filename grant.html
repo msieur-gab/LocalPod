@@ -264,7 +264,7 @@
 
     <script type="module">
       import { IdentityPlatform, DatabaseOps, isValidPublicKey, base58ToBytes, bytesToBase58 } from '@localPod/identity-platform';
-      import { SimpleStorage, getStorageConfig } from './storage.js';
+      import { getStorageConfig } from './storage.js';
       import { config } from './config.js';
 
       // DOM elements
@@ -414,18 +414,8 @@
             dom.expiresAt.textContent = formatDuration(ACTIVE_SERVICE.defaultGrantDurationMs);
           }
 
-          // Initialize platform
-          let remoteStorage = null;
-          if (config?.filebase?.accessKey && config.filebase.secretKey && config.filebase.bucket) {
-            try {
-              remoteStorage = new SimpleStorage(config.filebase);
-            } catch (error) {
-              console.warn('Failed to initialize remote storage:', error);
-            }
-          }
-
+          // Initialize platform (local-only, no remote storage)
           platform = new IdentityPlatform({
-            remoteStorage,
             serviceManifest: PLATFORM_SERVICE_MANIFEST,
           });
           await platform.init();
