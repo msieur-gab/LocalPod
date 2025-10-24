@@ -62,7 +62,7 @@ export class PinataProvider extends IPFSProvider {
 
     this.jwt = config.jwt;
     this.gateway = config.gateway || 'gateway.pinata.cloud';
-    this.uploadEndpoint = 'https://uploads.pinata.cloud/v3/files';
+    this.uploadEndpoint = 'https://api.pinata.cloud/pinning/pinFileToIPFS';
   }
 
   /**
@@ -81,7 +81,7 @@ export class PinataProvider extends IPFSProvider {
       const formData = new FormData();
       formData.append('file', file);
 
-      // Upload to Pinata
+      // Upload to Pinata using v1 API (better CORS support)
       const response = await fetch(this.uploadEndpoint, {
         method: 'POST',
         headers: {
@@ -97,8 +97,8 @@ export class PinataProvider extends IPFSProvider {
 
       const result = await response.json();
 
-      // Pinata v3 API returns: { data: { cid, ... } }
-      const cid = result.data?.cid || result.IpfsHash;
+      // Pinata v1 API returns: { IpfsHash, ... }
+      const cid = result.IpfsHash;
 
       if (!cid) {
         throw new Error('No CID returned from Pinata');
