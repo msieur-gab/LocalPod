@@ -17,6 +17,7 @@ export { AccountService } from './src/services/AccountService.js';
 export { ProfileService } from './src/services/ProfileService.js';
 export { CollaboratorService } from './src/services/CollaboratorService.js';
 export { ServiceRegistry } from './src/services/ServiceRegistry.js';
+export { CapabilityService } from './src/services/CapabilityService.js';
 
 // Core modules
 export {

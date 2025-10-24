@@ -8,6 +8,7 @@ import { AccountService } from './services/AccountService.js';
 import { ProfileService } from './services/ProfileService.js';
 import { CollaboratorService } from './services/CollaboratorService.js';
 import { ServiceRegistry } from './services/ServiceRegistry.js';
+import { CapabilityService } from './services/CapabilityService.js';
 import { signChallenge as signServiceChallengeHelper } from './core/Challenge.js';
 
 /**
@@ -43,6 +44,9 @@ export class IdentityPlatform {
     this.collaboratorService = new CollaboratorService(this.profileService, this.accountService);
     this.serviceRegistry = new ServiceRegistry({
       manifest: Array.isArray(serviceManifest) ? serviceManifest : [],
+    });
+    this.capabilityService = new CapabilityService({
+      accountService: this.accountService
     });
 
     // Event listeners for cross-service communication
