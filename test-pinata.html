@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Test Pinata Upload</title>
+</head>
+<body>
+  <h1>Testing Pinata Integration</h1>
+  <button id="test-upload">Test Upload</button>
+  <button id="test-download">Test Download</button>
+  <pre id="output"></pre>
+
+  <script type="module">
+    import { createProvider } from './ipfs-providers.js';
+
+    const output = document.getElementById('output');
+
+    // Your Pinata JWT
+    const PINATA_JWT = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySW5mb3JtYXRpb24iOnsiaWQiOiI5MzM3YTI4Yi0xYWFhLTQ5MTctYTVjYy04MjUwOTAxOGIwNzciLCJlbWFpbCI6ImJhdWRlLmdhYnJpZWxAZ21haWwuY29tIiwiZW1haWxfdmVyaWZpZWQiOnRydWUsInBpbl9wb2xpY3kiOnsicmVnaW9ucyI6W3siZGVzaXJlZFJlcGxpY2F0aW9uQ291bnQiOjEsImlkIjoiRlJBMSJ9LHsiZGVzaXJlZFJlcGxpY2F0aW9uQ291bnQiOjEsImlkIjoiTllDMSJ9XSwidmVyc2lvbiI6MX0sIm1mYV9lbmFibGVkIjpmYWxzZSwic3RhdHVzIjoiQUNUSVZFIn0sImF1dGhlbnRpY2F0aW9uVHlwZSI6InNjb3BlZEtleSIsInNjb3BlZEtleUtleSI6IjQxYzJkNDMxNzZkODNmOTk1YTc4Iiwic2NvcGVkS2V5U2VjcmV0IjoiZmVkMTYwY2RmZDJhYzJhZjkwMjJjYjZjNWQzN2NiOTA3N2RiNzQyZTk1NmJiNWZiYmNlNWRlODk3MmJhOWE0MyIsImV4cCI6MTc5Mjg3NjA4NH0.yjGTIAeu7db1AlUOL8q1wc94iAf9C2tPYLKS1XhF92A';
+
+    let testCid = null;
+
+    // Create Pinata provider
+    const provider = createProvider('pinata', {
+      jwt: PINATA_JWT,
+      gateway: 'gateway.pinata.cloud'
+    });
+
+    document.getElementById('test-upload').addEventListener('click', async () => {
+      try {
+        output.textContent = '⏳ Uploading test data to Pinata...\n';
+
+        const testData = {
+          message: 'Hello from LocalPod!',
+          timestamp: new Date().toISOString(),
+          test: true
+        };
+
+        const cid = await provider.upload(testData);
+        testCid = cid;
+
+        output.textContent += `✅ Upload successful!\n`;
+        output.textContent += `CID: ${cid}\n`;
+        output.textContent += `Gateway URL: ${provider.getGatewayUrl(cid)}\n`;
+        output.textContent += `\nYou can now click "Test Download" to verify.\n`;
+
+      } catch (error) {
+        output.textContent += `❌ Upload failed: ${error.message}\n`;
+        console.error('Upload error:', error);
+      }
+    });
+
+    document.getElementById('test-download').addEventListener('click', async () => {
+      if (!testCid) {
+        output.textContent += '❌ No CID to download. Upload first!\n';
+        return;
+      }
+
+      try {
+        output.textContent += `\n⏳ Downloading from IPFS...\n`;
+        output.textContent += `CID: ${testCid}\n`;
+
+        const data = await provider.download(testCid);
+
+        output.textContent += `✅ Download successful!\n`;
+        output.textContent += `Data: ${JSON.stringify(data, null, 2)}\n`;
+
+      } catch (error) {
+        output.textContent += `❌ Download failed: ${error.message}\n`;
+        console.error('Download error:', error);
+      }
+    });
+
+    output.textContent = 'Ready to test! Click "Test Upload" to start.\n';
+  </script>
+</body>
+</html>
