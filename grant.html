@@ -264,7 +264,7 @@
 
     <script type="module">
       import { IdentityPlatform, DatabaseOps, isValidPublicKey, base58ToBytes, bytesToBase58 } from '@localPod/identity-platform';
-      import { SimpleStorage } from './storage.js';
+      import { SimpleStorage, getStorageConfig } from './storage.js';
       import { config } from './config.js';
 
       // DOM elements
@@ -551,26 +551,71 @@
 
           console.log('✅ UCAN token generated');
 
-          // 2. Generate presigned URL (if remote storage available)
-          let presignedUrl = null;
-          if (platform.remoteStorage) {
-            dom.status.textContent = 'Generating presigned URL...';
-            console.log('📦 Generating presigned upload URL');
+          // 2. Load and decrypt storage provider configuration
+          let storageProvider = null;
+          dom.status.textContent = 'Loading storage configuration...';
 
-            // Extract path from resourceId (e.g., ipfs://publicKey/notes/* -> notes/)
-            const resourcePath = actualResourceId
-              .replace(`ipfs://${publicKeyString}/`, '')
-              .replace('*', 'data.json');  // Replace wildcard with default filename
+          try {
+            const storedConfig = await getStorageConfig();
 
-            presignedUrl = await platform.remoteStorage.generatePresignedUploadUrl(
-              `${publicKeyString}/${resourcePath}`,
-              3600,  // 1 hour expiration
-              'application/json'
-            );
+            if (storedConfig) {
+              console.log('📦 Decrypting storage configuration');
 
-            console.log('✅ Presigned URL generated (expires in 1 hour)');
-          } else {
-            console.warn('⚠️  No remote storage configured - presigned URL not generated');
+              // Decrypt the JWT using user's private key
+              const decoder = new TextDecoder();
+
+              // Convert base64 back to Uint8Array
+              const encryptedJwt = Uint8Array.from(atob(storedConfig.encryptedJwt), c => c.charCodeAt(0));
+              const iv = Uint8Array.from(atob(storedConfig.encryptionIv), c => c.charCodeAt(0));
+              const salt = Uint8Array.from(atob(storedConfig.encryptionSalt), c => c.charCodeAt(0));
+
+              // Derive decryption key from user's private key
+              const keyMaterial = await crypto.subtle.importKey(
+                'raw',
+                identity.signingPrivateKey,
+                { name: 'PBKDF2' },
+                false,
+                ['deriveBits', 'deriveKey']
+              );
+
+              const decryptionKey = await crypto.subtle.deriveKey(
+                {
+                  name: 'PBKDF2',
+                  salt: salt,
+                  iterations: 100000,
+                  hash: 'SHA-256'
+                },
+                keyMaterial,
+                { name: 'AES-GCM', length: 256 },
+                false,
+                ['encrypt', 'decrypt']
+              );
+
+              // Decrypt the JWT
+              const decryptedJwt = await crypto.subtle.decrypt(
+                { name: 'AES-GCM', iv: iv },
+                decryptionKey,
+                encryptedJwt
+              );
+
+              const jwt = decoder.decode(decryptedJwt);
+
+              // Build provider configuration object
+              storageProvider = {
+                provider: storedConfig.provider,
+                config: {
+                  jwt: jwt,
+                  gateway: storedConfig.gateway || undefined
+                }
+              };
+
+              console.log(`✅ Storage provider configured: ${storedConfig.provider}`);
+            } else {
+              console.warn('⚠️  No storage configuration found - user must configure IPFS provider in demo.html');
+            }
+          } catch (error) {
+            console.error('Failed to load storage configuration:', error);
+            console.warn('⚠️  Continuing without storage provider');
           }
 
           // 3. Save grant to IndexedDB (for user's reference in demo.html)
@@ -599,7 +644,7 @@
           const grantPayload = {
             grantApproved: true,
             ucan: ucanToken,
-            presignedUrl: presignedUrl,
+            storageProvider: storageProvider,  // New: provider configuration
             userDid: identity.did,
             userPublicKey: publicKeyString,
             resourceId: actualResourceId,
