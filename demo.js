@@ -1216,23 +1216,13 @@ async function handleSaveStorageConfig(event) {
     const saltB64 = btoa(String.fromCharCode(...salt));
 
     // Save to IndexedDB
-    try {
-      await saveStorageConfig({
-        provider: provider,
-        encryptedJwt: encryptedJwtB64,
-        encryptionIv: ivB64,
-        encryptionSalt: saltB64,
-        gateway: gateway || null
-      });
-    } catch (saveError) {
-      if (saveError.name === 'NotFoundError') {
-        // Database schema hasn't upgraded yet - close and reopen
-        console.log('🔄 Upgrading database schema...');
-        location.reload();
-        return;
-      }
-      throw saveError;
-    }
+    await saveStorageConfig({
+      provider: provider,
+      encryptedJwt: encryptedJwtB64,
+      encryptionIv: ivB64,
+      encryptionSalt: saltB64,
+      gateway: gateway || null
+    });
 
     statusEl.textContent = `✅ ${provider} configuration saved successfully!`;
     statusEl.style.display = 'block';
