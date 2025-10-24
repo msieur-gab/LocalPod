@@ -1161,12 +1161,11 @@ async function handleSaveStorageConfig(event) {
       throw new Error(`${provider} provider is not yet implemented. Please use Pinata for now.`);
     }
 
-    // Encrypt the JWT using user's password
+    // Encrypt the JWT using user's private key
     if (!currentIdentity) {
       throw new Error('You must be logged in to save storage configuration');
     }
 
-    // Derive encryption key from user's signing private key (we have it when unlocked)
     const encoder = new TextEncoder();
     const jwtBytes = encoder.encode(jwt);
 
@@ -1174,20 +1173,20 @@ async function handleSaveStorageConfig(event) {
     const salt = crypto.getRandomValues(new Uint8Array(16));
     const iv = crypto.getRandomValues(new Uint8Array(12));
 
-    // Derive key from user's private key (this is available when unlocked)
+    // Derive encryption key from user's signing private key using HKDF
     const keyMaterial = await crypto.subtle.importKey(
       'raw',
       currentIdentity.signingPrivateKey,
-      { name: 'PBKDF2' },
+      { name: 'HKDF' },
       false,
-      ['deriveBits', 'deriveKey']
+      ['deriveKey']
     );
 
     const encryptionKey = await crypto.subtle.deriveKey(
       {
-        name: 'PBKDF2',
+        name: 'HKDF',
         salt: salt,
-        iterations: 100000,
+        info: encoder.encode('pinata-jwt-encryption'),
         hash: 'SHA-256'
       },
       keyMaterial,
@@ -1209,13 +1208,23 @@ async function handleSaveStorageConfig(event) {
     const saltB64 = btoa(String.fromCharCode(...salt));
 
     // Save to IndexedDB
-    await saveStorageConfig({
-      provider: provider,
-      encryptedJwt: encryptedJwtB64,
-      encryptionIv: ivB64,
-      encryptionSalt: saltB64,
-      gateway: gateway || null
-    });
+    try {
+      await saveStorageConfig({
+        provider: provider,
+        encryptedJwt: encryptedJwtB64,
+        encryptionIv: ivB64,
+        encryptionSalt: saltB64,
+        gateway: gateway || null
+      });
+    } catch (saveError) {
+      if (saveError.name === 'NotFoundError') {
+        // Database schema hasn't upgraded yet - close and reopen
+        console.log('🔄 Upgrading database schema...');
+        location.reload();
+        return;
+      }
+      throw saveError;
+    }
 
     statusEl.textContent = `✅ ${provider} configuration saved successfully!`;
     statusEl.style.display = 'block';
@@ -1285,7 +1294,12 @@ async function loadStorageConfigUI() {
       statusEl.style.display = 'block';
     }
   } catch (error) {
-    console.error('Failed to load storage config:', error);
+    // Ignore "table not found" errors - this happens on first run or after schema upgrade
+    if (error.name === 'NotFoundError') {
+      console.log('ℹ️ Storage config table not found - this is normal for first run');
+    } else {
+      console.error('Failed to load storage config:', error);
+    }
   }
 }
 

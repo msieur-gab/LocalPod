@@ -563,26 +563,27 @@
 
               // Decrypt the JWT using user's private key
               const decoder = new TextDecoder();
+              const encoder = new TextEncoder();
 
               // Convert base64 back to Uint8Array
               const encryptedJwt = Uint8Array.from(atob(storedConfig.encryptedJwt), c => c.charCodeAt(0));
               const iv = Uint8Array.from(atob(storedConfig.encryptionIv), c => c.charCodeAt(0));
               const salt = Uint8Array.from(atob(storedConfig.encryptionSalt), c => c.charCodeAt(0));
 
-              // Derive decryption key from user's private key
+              // Derive decryption key from user's private key using HKDF
               const keyMaterial = await crypto.subtle.importKey(
                 'raw',
                 identity.signingPrivateKey,
-                { name: 'PBKDF2' },
+                { name: 'HKDF' },
                 false,
-                ['deriveBits', 'deriveKey']
+                ['deriveKey']
               );
 
               const decryptionKey = await crypto.subtle.deriveKey(
                 {
-                  name: 'PBKDF2',
+                  name: 'HKDF',
                   salt: salt,
-                  iterations: 100000,
+                  info: encoder.encode('pinata-jwt-encryption'),
                   hash: 'SHA-256'
                 },
                 keyMaterial,
