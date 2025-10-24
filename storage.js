@@ -43,6 +43,16 @@ db.version(4).stores({
   sharedKeys: '[docId+publicKey], docId, publicKey',
   profiles: '&publicKey, updatedAt',
   backups: '&publicKey, updatedAt',
+});
+
+db.version(5).stores({
+  identity: null,
+  accounts: '&username, createdAt',
+  collaborators: '&id, publicKey, addedAt',
+  documents: '&id, updatedAt',
+  sharedKeys: '[docId+publicKey], docId, publicKey',
+  profiles: '&publicKey, updatedAt',
+  backups: '&publicKey, updatedAt',
   storageConfig: '&id, updatedAt',
 });
 
