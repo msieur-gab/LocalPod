@@ -129,6 +129,7 @@
 
   <script type="module">
     import { IdentityPlatform } from '@localPod/identity-platform';
+    import { createProvider } from './ipfs-providers.js';
 
     // ============================================================
     // SERVICE CONFIGURATION
@@ -143,11 +144,11 @@
     // STATE MANAGEMENT
     // ============================================================
     let state = {
-      ucanToken: null,        // UCAN capability token (7-day expiration)
-      presignedUrl: null,     // Presigned upload URL (1-hour expiration)
-      userPublicKey: null,    // User's public key for IPFS path
-      ipfsCid: null,          // IPFS CID of the uploaded data
-      items: []               // Saved items
+      ucanToken: null,           // UCAN capability token (7-day expiration)
+      storageProvider: null,      // IPFS provider instance (from ipfs-providers.js)
+      userPublicKey: null,       // User's public key for IPFS path
+      ipfsCid: null,             // IPFS CID of the uploaded data
+      items: []                  // Saved items
     };
 
     // ============================================================
@@ -214,18 +215,29 @@
 
       console.log('✅ Grant approved!', {
         ucan: grant.ucan.substring(0, 50) + '...',
-        expiresAt: grant.expiresAt
+        expiresAt: grant.expiresAt,
+        provider: grant.storageProvider?.provider
       });
+
+      // Create storage provider instance
+      if (grant.storageProvider) {
+        state.storageProvider = createProvider(
+          grant.storageProvider.provider,
+          grant.storageProvider.config
+        );
+        console.log(`✅ Storage provider initialized: ${grant.storageProvider.provider}`);
+      } else {
+        console.warn('⚠️  No storage provider configured - uploads will fail');
+      }
 
       // Store grant data
       state.ucanToken = grant.ucan;
-      state.presignedUrl = grant.presignedUrl;
       state.userPublicKey = grant.userPublicKey;
 
       // Persist to localStorage for future sessions
       localStorage.setItem('simple-service:grant', JSON.stringify({
         ucanToken: grant.ucan,
-        presignedUrl: grant.presignedUrl,
+        storageProvider: grant.storageProvider,  // Store provider config
         userPublicKey: grant.userPublicKey,
         expiresAt: grant.expiresAt,
         receivedAt: new Date().toISOString()
@@ -245,9 +257,8 @@
 
       if (params.has('grant')) {
         await handleGrantCallback(params);
-      } else if (params.has('renewed')) {
-        await handleRenewalCallback(params);
       }
+      // Note: presigned URL renewal callback removed - no longer needed
     }
 
     // ============================================================
@@ -267,26 +278,26 @@
         console.log('🔍 DEBUG - Parsed grant:', grant);
 
         state.ucanToken = grant.ucanToken;
-        state.presignedUrl = grant.presignedUrl;
         state.userPublicKey = grant.userPublicKey;
         state.ipfsCid = grant.ipfsCid || null;
 
+        // Recreate storage provider instance
+        if (grant.storageProvider) {
+          state.storageProvider = createProvider(
+            grant.storageProvider.provider,
+            grant.storageProvider.config
+          );
+          console.log(`✅ Storage provider restored: ${grant.storageProvider.provider}`);
+        } else {
+          console.warn('⚠️  No storage provider in saved grant');
+        }
+
         console.log('🔍 DEBUG - State after restore:', {
           hasUcan: !!state.ucanToken,
-          hasPresignedUrl: !!state.presignedUrl,
+          hasProvider: !!state.storageProvider,
           userPublicKey: state.userPublicKey,
           ipfsCid: state.ipfsCid
         });
-
-        // Check if presigned URL expired (1 hour)
-        const receivedAt = new Date(grant.receivedAt);
-        const now = new Date();
-        const hoursPassed = (now - receivedAt) / (1000 * 60 * 60);
-
-        if (hoursPassed >= 1) {
-          console.log('⏰ Presigned URL expired, renewing...');
-          await renewPresignedUrl();
-        }
       }
 
       // Load data from IPFS
@@ -307,17 +318,21 @@
         return;
       }
 
-      try {
-        const ipfsUrl = `https://ipfs.filebase.io/ipfs/${state.ipfsCid}`;
-        console.log('📥 Loading data from IPFS:', ipfsUrl);
-        const response = await fetch(ipfsUrl);
+      if (!state.storageProvider) {
+        console.warn('⚠️  No storage provider available');
+        state.items = [];
+        renderItems();
+        return;
+      }
 
-        if (response.ok) {
-          const data = await response.json();
-          state.items = data.items || [];
-          console.log(`✅ Loaded ${state.items.length} items from IPFS`);
-          renderItems();
-        }
+      try {
+        console.log('📥 Loading data from IPFS via provider:', state.ipfsCid);
+
+        // Use provider to download
+        const data = await state.storageProvider.download(state.ipfsCid);
+        state.items = data.items || [];
+        console.log(`✅ Loaded ${state.items.length} items from IPFS`);
+        renderItems();
       } catch (error) {
         console.log('Failed to load data from IPFS:', error);
         state.items = [];
@@ -337,6 +352,11 @@
         return;
       }
 
+      if (!state.storageProvider) {
+        showStatus('error', 'No storage provider configured');
+        return;
+      }
+
       try {
         dom.saveBtn.disabled = true;
         showStatus('info', 'Saving to IPFS...');
@@ -350,35 +370,22 @@
         };
         state.items.unshift(item);
 
-        // Upload to IPFS using presigned URL
+        // Prepare data for upload
         const data = {
           items: state.items,
           updatedAt: new Date().toISOString()
         };
 
-        const response = await fetch(state.presignedUrl.url, {
-          method: 'PUT',
-          headers: state.presignedUrl.headers,
-          body: JSON.stringify(data, null, 2)
-        });
+        // Upload to IPFS using provider
+        const ipfsCid = await state.storageProvider.upload(data);
 
-        if (!response.ok) {
-          throw new Error(`Upload failed: ${response.statusText}`);
-        }
+        state.ipfsCid = ipfsCid;
+        console.log('✅ Saved to IPFS - CID:', ipfsCid);
 
-        // Capture IPFS CID from response headers
-        const ipfsCid = response.headers.get('x-amz-meta-cid');
-        if (ipfsCid) {
-          state.ipfsCid = ipfsCid;
-          console.log('✅ Saved to IPFS - CID:', ipfsCid);
-
-          // Update localStorage with new CID
-          const stored = JSON.parse(localStorage.getItem('simple-service:grant') || '{}');
-          stored.ipfsCid = ipfsCid;
-          localStorage.setItem('simple-service:grant', JSON.stringify(stored));
-        } else {
-          console.warn('⚠️  No CID returned from upload');
-        }
+        // Update localStorage with new CID
+        const stored = JSON.parse(localStorage.getItem('simple-service:grant') || '{}');
+        stored.ipfsCid = ipfsCid;
+        localStorage.setItem('simple-service:grant', JSON.stringify(stored));
 
         showStatus('success', 'Saved to IPFS!');
 
@@ -398,43 +405,7 @@
       }
     }
 
-    /**
-     * Renew presigned URL (silent, no password needed)
-     */
-    async function renewPresignedUrl() {
-      const renewUrl = new URL('./renew-presigned-url.html', window.location.origin);
-      renewUrl.hash = new URLSearchParams({
-        ucan: state.ucanToken,
-        user_publickey: state.userPublicKey,
-        resource_path: SERVICE_CONFIG.resourcePath,
-        callback_url: window.location.href.split('#')[0]
-      }).toString();
-
-      console.log('🔄 Renewing presigned URL...');
-      window.location.href = renewUrl.toString();
-    }
-
-    /**
-     * Handle renewal callback
-     */
-    async function handleRenewalCallback(params) {
-      const renewed = JSON.parse(decodeURIComponent(params.get('renewed')));
-
-      console.log('✅ Presigned URL renewed!');
-
-      // Update presigned URL
-      state.presignedUrl = renewed.presignedUrl;
-
-      // Update localStorage
-      const stored = JSON.parse(localStorage.getItem('simple-service:grant'));
-      stored.presignedUrl = renewed.presignedUrl;
-      stored.receivedAt = renewed.renewedAt;
-      localStorage.setItem('simple-service:grant', JSON.stringify(stored));
-
-      // Clear hash and continue
-      window.location.hash = '';
-      await loadApp();
-    }
+    // Note: Presigned URL renewal functions removed - no longer needed with provider system
 
     // ============================================================
     // UI RENDERING
