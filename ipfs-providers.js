@@ -104,49 +104,65 @@ export class PinataProvider extends IPFSProvider {
    */
   async upload(jsonData, options = {}) {
     try {
-      console.log('📤 Uploading to Pinata via Netlify function (v3 SDK)...');
+      console.log('📤 Uploading to Pinata v1 API...');
 
       const { userDid, serviceName, filename = 'data.json' } = options;
 
-      // Convert JSON to base64 for transfer
+      // Convert JSON to File object
       const jsonString = JSON.stringify(jsonData, null, 2);
-      const fileData = btoa(jsonString);
+      const blob = new Blob([jsonString], { type: 'application/json' });
+      const file = new File([blob], filename, { type: 'application/json' });
 
-      // Call Netlify function instead of direct API
-      const functionUrl = '/.netlify/functions/pinata-upload';
+      // Create FormData
+      const formData = new FormData();
+      formData.append('file', file);
 
-      const response = await fetch(functionUrl, {
+      // Build metadata with user and service organization
+      const metadata = {
+        name: serviceName ? `${serviceName}/${filename}` : filename,
+        keyvalues: {
+          uploadedAt: new Date().toISOString(),
+          type: 'json'
+        }
+      };
+
+      if (userDid) {
+        metadata.keyvalues.userDid = userDid;
+      }
+
+      if (serviceName) {
+        metadata.keyvalues.service = serviceName;
+      }
+
+      console.log('📁 Pinata metadata:', metadata);
+      formData.append('pinataMetadata', JSON.stringify(metadata));
+
+      // Upload using v1 API (no CORS, no build step, works!)
+      const response = await fetch(this.uploadEndpoint, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'pinata_api_key': this.apiKey,
+          'pinata_secret_api_key': this.secret
         },
-        body: JSON.stringify({
-          fileData: fileData,
-          fileName: filename,
-          mimeType: 'application/json',
-          userDid: userDid,
-          serviceName: serviceName,
-          jwt: this.jwt
-        })
+        body: formData
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(`Upload via Netlify failed (${response.status}): ${errorData.error || errorData.details}`);
+        const errorText = await response.text();
+        throw new Error(`Pinata upload failed (${response.status}): ${errorText}`);
       }
 
       const result = await response.json();
+      const cid = result.IpfsHash;
 
-      if (!result.success || !result.cid) {
-        throw new Error('No CID returned from upload');
+      if (!cid) {
+        throw new Error('No CID returned from Pinata');
       }
 
-      console.log('✅ Uploaded to Pinata, CID:', result.cid);
-      if (result.groupId) {
-        console.log('✅ File added to group:', result.groupId);
-      }
+      console.log('✅ Uploaded to Pinata, CID:', cid);
+      console.log('📋 Filter in Pinata by userDid:', userDid, 'or service:', serviceName);
 
-      return result.cid;
+      return cid;
 
     } catch (error) {
       console.error('❌ Pinata upload error:', error);

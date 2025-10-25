@@ -1,0 +1,31 @@
+# Netlify Configuration for LocalPod
+# https://docs.netlify.com/configure-builds/file-based-configuration/
+
+[build]
+  # Publish directory (your static files)
+  publish = "."
+
+  # Functions directory
+  functions = "netlify/functions"
+
+  # No build command needed (static site)
+  command = ""
+
+# Redirect rules
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
+
+# Environment variables (set these in Netlify dashboard)
+# FILEBASE_ACCESS_KEY - Your Filebase S3 access key
+# FILEBASE_SECRET_KEY - Your Filebase S3 secret key
+# FILEBASE_BUCKET - Your Filebase bucket name (default: markdown-collab)
+
+# Headers for CORS
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
+    Access-Control-Allow-Methods = "GET, POST, PUT, DELETE, OPTIONS"
+    Access-Control-Allow-Headers = "Content-Type, Authorization"
