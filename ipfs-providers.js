@@ -60,65 +60,73 @@ export class PinataProvider extends IPFSProvider {
       throw new Error('Pinata JWT is required');
     }
 
-    this.jwt = config.jwt.trim(); // Remove any whitespace
+    // Decode JWT to extract API key and secret
+    // JWT format: header.payload.signature
+    const jwt = config.jwt.trim();
+    const parts = jwt.split('.');
+    if (parts.length !== 3) {
+      throw new Error('Invalid JWT format');
+    }
+
+    try {
+      // Decode the payload (base64url encoded)
+      const payload = JSON.parse(atob(parts[1]));
+      this.apiKey = payload.scopedKeyKey;
+      this.secret = payload.scopedKeySecret;
+
+      if (!this.apiKey || !this.secret) {
+        throw new Error('JWT does not contain scopedKeyKey or scopedKeySecret');
+      }
+
+      console.log('✅ Extracted API key from JWT:', this.apiKey);
+    } catch (error) {
+      console.error('Failed to decode JWT:', error);
+      throw new Error('Failed to extract credentials from JWT');
+    }
+
     this.gateway = config.gateway || 'gateway.pinata.cloud';
-    this.signEndpoint = 'https://uploads.pinata.cloud/v3/files/sign';
+    this.uploadEndpoint = 'https://api.pinata.cloud/pinning/pinFileToIPFS';
   }
 
   /**
-   * Upload JSON to Pinata using v3 signed URL approach
+   * Upload JSON to Pinata using v1 API (like pebbble-write)
    * @param {Object} jsonData - JSON data to upload
    * @returns {Promise<string>} IPFS CID
    */
   async upload(jsonData) {
     try {
-      console.log('📤 Uploading to Pinata v3 API (signed URL)...');
+      console.log('📤 Uploading to Pinata v1 API...');
 
       // Convert JSON to File object
       const jsonString = JSON.stringify(jsonData, null, 2);
       const blob = new Blob([jsonString], { type: 'application/json' });
       const file = new File([blob], 'data.json', { type: 'application/json' });
 
-      // Step 1: Get signed upload URL
-      console.log('🔑 Requesting signed upload URL...');
-      const signResponse = await fetch(this.signEndpoint, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${this.jwt}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          filename: 'data.json',
-          max_file_size: file.size,
-          allow_mime_types: ['application/json']
-        })
-      });
-
-      if (!signResponse.ok) {
-        const errorText = await signResponse.text();
-        throw new Error(`Failed to get signed URL (${signResponse.status}): ${errorText}`);
-      }
-
-      const signData = await signResponse.json();
-      console.log('✅ Got signed URL');
-
-      // Step 2: Upload file to signed URL
-      console.log('📤 Uploading file to signed URL...');
+      // Create FormData
       const formData = new FormData();
       formData.append('file', file);
 
-      const uploadResponse = await fetch(signData.data.url, {
-        method: 'PUT',
-        body: file
+      // Optional: Add metadata
+      const metadata = JSON.stringify({ name: 'data.json' });
+      formData.append('pinataMetadata', metadata);
+
+      // Upload using API key + secret headers (like pebbble-write)
+      const response = await fetch(this.uploadEndpoint, {
+        method: 'POST',
+        headers: {
+          'pinata_api_key': this.apiKey,
+          'pinata_secret_api_key': this.secret
+        },
+        body: formData
       });
 
-      if (!uploadResponse.ok) {
-        const errorText = await uploadResponse.text();
-        throw new Error(`Upload to signed URL failed (${uploadResponse.status}): ${errorText}`);
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Pinata upload failed (${response.status}): ${errorText}`);
       }
 
-      const uploadResult = await uploadResponse.json();
-      const cid = uploadResult.data?.cid;
+      const result = await response.json();
+      const cid = result.IpfsHash;
 
       if (!cid) {
         throw new Error('No CID returned from Pinata');
