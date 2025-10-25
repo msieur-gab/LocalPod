@@ -104,84 +104,49 @@ export class PinataProvider extends IPFSProvider {
    */
   async upload(jsonData, options = {}) {
     try {
-      console.log('📤 Uploading to Pinata v1 API...');
+      console.log('📤 Uploading to Pinata via Netlify function (v3 SDK)...');
 
       const { userDid, serviceName, filename = 'data.json' } = options;
 
-      // Step 1: Get or create user group (one group per user)
-      let userGroupId = null;
-      if (userDid) {
-        // Use full DID as group name for easy discovery
-        userGroupId = await this.getOrCreateGroup(userDid, true);
-      }
-
-      // Convert JSON to File object
+      // Convert JSON to base64 for transfer
       const jsonString = JSON.stringify(jsonData, null, 2);
-      const blob = new Blob([jsonString], { type: 'application/json' });
-      const file = new File([blob], filename, { type: 'application/json' });
+      const fileData = btoa(jsonString);
 
-      // Create FormData
-      const formData = new FormData();
-      formData.append('file', file);
+      // Call Netlify function instead of direct API
+      const functionUrl = '/.netlify/functions/pinata-upload';
 
-      // Step 2: Build metadata with service tagging
-      const metadata = {
-        name: serviceName ? `${serviceName}/${filename}` : filename,
-      };
-
-      // Add keyvalues for organization and searchability
-      const keyvalues = {
-        uploadedAt: new Date().toISOString(),
-        type: 'json'
-      };
-
-      if (userDid) {
-        keyvalues.userDid = userDid;
-      }
-
-      if (serviceName) {
-        keyvalues.service = serviceName;
-      }
-
-      if (userGroupId) {
-        keyvalues.groupId = userGroupId;
-      }
-
-      metadata.keyvalues = keyvalues;
-
-      console.log('📁 Pinata metadata:', metadata);
-      formData.append('pinataMetadata', JSON.stringify(metadata));
-
-      // Step 3: Upload file using API key + secret headers
-      const response = await fetch(this.uploadEndpoint, {
+      const response = await fetch(functionUrl, {
         method: 'POST',
         headers: {
-          'pinata_api_key': this.apiKey,
-          'pinata_secret_api_key': this.secret
+          'Content-Type': 'application/json'
         },
-        body: formData
+        body: JSON.stringify({
+          fileData: fileData,
+          fileName: filename,
+          mimeType: 'application/json',
+          userDid: userDid,
+          serviceName: serviceName,
+          jwt: this.jwt
+        })
       });
 
       if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Pinata upload failed (${response.status}): ${errorText}`);
+        const errorData = await response.json();
+        throw new Error(`Upload via Netlify failed (${response.status}): ${errorData.error || errorData.details}`);
       }
 
       const result = await response.json();
-      const cid = result.IpfsHash;
 
-      if (!cid) {
-        throw new Error('No CID returned from Pinata');
+      if (!result.success || !result.cid) {
+        throw new Error('No CID returned from upload');
       }
 
-      console.log('✅ Uploaded to Pinata, CID:', cid);
-
-      // Step 4: Add file to user's group
-      if (userGroupId) {
-        await this.addFileToGroup(userGroupId, cid, true);
+      console.log('✅ Uploaded to Pinata, CID:', result.cid);
+      if (result.groupId) {
+        console.log('✅ File added to group:', result.groupId);
       }
 
-      return cid;
+      return result.cid;
 
     } catch (error) {
       console.error('❌ Pinata upload error:', error);
