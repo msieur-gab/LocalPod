@@ -61,9 +61,11 @@ export class PinataProvider extends IPFSProvider {
       throw new Error('Pinata JWT is required');
     }
 
-    // Decode JWT to extract API key and secret
+    // Store JWT and decode to extract API key and secret
     // JWT format: header.payload.signature
     const jwt = config.jwt.trim();
+    this.jwt = jwt; // Store for v3 API calls (Groups, etc.)
+
     const parts = jwt.split('.');
     if (parts.length !== 3) {
       throw new Error('Invalid JWT format');
@@ -87,6 +89,8 @@ export class PinataProvider extends IPFSProvider {
 
     this.gateway = config.gateway || 'gateway.pinata.cloud';
     this.uploadEndpoint = 'https://api.pinata.cloud/pinning/pinFileToIPFS';
+    this.groupsEndpoint = 'https://api.pinata.cloud/v3/groups';
+    this.groupCache = {}; // Cache created groups to avoid recreating
   }
 
   /**
@@ -103,6 +107,18 @@ export class PinataProvider extends IPFSProvider {
       console.log('📤 Uploading to Pinata v1 API...');
 
       const { userDid, serviceName, filename = 'data.json' } = options;
+
+      // Create groups for organization (user folder and service subfolder)
+      let groupId = null;
+      if (userDid && serviceName) {
+        // Create user group (e.g., "user-D7k4brf...")
+        const userGroupName = `user-${userDid.substring(0, 12)}`;
+        await this.createGroup(userGroupName, true);
+
+        // Create service group (e.g., "user-D7k4brf.../Simple Service")
+        const serviceGroupName = `${userGroupName}/${serviceName}`;
+        groupId = await this.createGroup(serviceGroupName, true);
+      }
 
       // Convert JSON to File object
       const jsonString = JSON.stringify(jsonData, null, 2);
@@ -128,6 +144,10 @@ export class PinataProvider extends IPFSProvider {
 
       if (serviceName) {
         keyvalues.service = serviceName;
+      }
+
+      if (groupId) {
+        keyvalues.groupId = groupId;
       }
 
       keyvalues.uploadedAt = new Date().toISOString();
@@ -166,6 +186,65 @@ export class PinataProvider extends IPFSProvider {
     } catch (error) {
       console.error('❌ Pinata upload error:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Create or get a group (folder) in Pinata
+   * @param {string} groupName - Name of the group to create
+   * @param {boolean} isPublic - Whether the group is public (default: true)
+   * @returns {Promise<string>} Group ID
+   */
+  async createGroup(groupName, isPublic = true) {
+    // Check cache first
+    if (this.groupCache[groupName]) {
+      console.log('📁 Using cached group:', groupName);
+      return this.groupCache[groupName];
+    }
+
+    try {
+      console.log('📁 Creating group:', groupName);
+
+      const network = isPublic ? 'public' : 'private';
+      const response = await fetch(`${this.groupsEndpoint}/${network}`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.jwt}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          name: groupName,
+          is_public: isPublic
+        })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+
+        // If group already exists, that's okay
+        if (response.status === 409 || errorText.includes('already exists')) {
+          console.log('📁 Group already exists:', groupName);
+          // Note: We'd need to list groups to get the ID, but for now just continue
+          // The upload will still work without the group ID
+          return null;
+        }
+
+        throw new Error(`Failed to create group (${response.status}): ${errorText}`);
+      }
+
+      const result = await response.json();
+      const groupId = result.id;
+
+      // Cache the group ID
+      this.groupCache[groupName] = groupId;
+
+      console.log('✅ Created group:', groupName, 'ID:', groupId);
+      return groupId;
+
+    } catch (error) {
+      console.warn('⚠️ Group creation failed (continuing anyway):', error.message);
+      // Don't fail the upload if group creation fails
+      return null;
     }
   }
 
