@@ -219,8 +219,10 @@ export class PinataProvider extends IPFSProvider {
         const listData = await listResponse.json();
         console.log('📋 List response:', listData);
 
-        if (listData.groups && listData.groups.length > 0) {
-          const existingGroup = listData.groups.find(g => g.name === groupName);
+        // Response structure: {data: {groups: [...]}}
+        const groups = listData.data?.groups || listData.groups || [];
+        if (groups.length > 0) {
+          const existingGroup = groups.find(g => g.name === groupName);
           if (existingGroup) {
             console.log('✅ Group already exists:', groupName, 'ID:', existingGroup.id);
             this.groupCache[groupName] = existingGroup.id;
@@ -264,8 +266,10 @@ export class PinataProvider extends IPFSProvider {
             const retryListData = await retryListResponse.json();
             console.log('📋 Retry list response:', retryListData);
 
-            if (retryListData.groups && retryListData.groups.length > 0) {
-              const existingGroup = retryListData.groups.find(g => g.name === groupName);
+            // Response structure: {data: {groups: [...]}}
+            const retryGroups = retryListData.data?.groups || retryListData.groups || [];
+            if (retryGroups.length > 0) {
+              const existingGroup = retryGroups.find(g => g.name === groupName);
               if (existingGroup) {
                 console.log('✅ Found existing group:', groupName, 'ID:', existingGroup.id);
                 this.groupCache[groupName] = existingGroup.id;
@@ -279,7 +283,12 @@ export class PinataProvider extends IPFSProvider {
       }
 
       const createData = await createResponse.json();
-      const groupId = createData.id;
+      // Response structure: {data: {id, name, ...}} or {id, name, ...}
+      const groupId = createData.data?.id || createData.id;
+
+      if (!groupId) {
+        throw new Error('No group ID in create response');
+      }
 
       // Cache the group ID
       this.groupCache[groupName] = groupId;
