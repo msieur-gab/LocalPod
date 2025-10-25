@@ -390,11 +390,16 @@
           updatedAt: new Date().toISOString()
         };
 
-        // Upload to IPFS using provider
-        const ipfsCid = await state.storageProvider.upload(data);
+        // Upload to IPFS using provider with folder organization
+        const ipfsCid = await state.storageProvider.upload(data, {
+          userDid: state.userPublicKey,
+          serviceName: SERVICE_CONFIG.name,
+          filename: 'data.json'
+        });
 
         state.ipfsCid = ipfsCid;
         console.log('✅ Saved to IPFS - CID:', ipfsCid);
+        console.log('📁 Organized under:', `${state.userPublicKey}/${SERVICE_CONFIG.name}/data.json`);
 
         // Update localStorage with new CID
         const stored = JSON.parse(localStorage.getItem('simple-service:grant') || '{}');

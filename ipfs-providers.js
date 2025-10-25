@@ -19,9 +19,10 @@ export class IPFSProvider {
   /**
    * Upload JSON data to IPFS
    * @param {Object} jsonData - Data to upload
+   * @param {Object} options - Upload options (provider-specific)
    * @returns {Promise<string>} CID of uploaded content
    */
-  async upload(jsonData) {
+  async upload(jsonData, options = {}) {
     throw new Error('Must implement upload()');
   }
 
@@ -91,24 +92,51 @@ export class PinataProvider extends IPFSProvider {
   /**
    * Upload JSON to Pinata using v1 API (like pebbble-write)
    * @param {Object} jsonData - JSON data to upload
+   * @param {Object} options - Upload options
+   * @param {string} options.userDid - User's DID for folder organization
+   * @param {string} options.serviceName - Service name for folder organization
+   * @param {string} options.filename - Optional filename (default: data.json)
    * @returns {Promise<string>} IPFS CID
    */
-  async upload(jsonData) {
+  async upload(jsonData, options = {}) {
     try {
       console.log('📤 Uploading to Pinata v1 API...');
+
+      const { userDid, serviceName, filename = 'data.json' } = options;
 
       // Convert JSON to File object
       const jsonString = JSON.stringify(jsonData, null, 2);
       const blob = new Blob([jsonString], { type: 'application/json' });
-      const file = new File([blob], 'data.json', { type: 'application/json' });
+      const file = new File([blob], filename, { type: 'application/json' });
 
       // Create FormData
       const formData = new FormData();
       formData.append('file', file);
 
-      // Optional: Add metadata
-      const metadata = JSON.stringify({ name: 'data.json' });
-      formData.append('pinataMetadata', metadata);
+      // Build organized metadata with folder structure
+      const metadata = {
+        name: filename,
+      };
+
+      // Add keyvalues for organization and searchability
+      const keyvalues = {};
+
+      if (userDid) {
+        metadata.name = `${userDid}/${serviceName || 'default'}/${filename}`;
+        keyvalues.userDid = userDid;
+      }
+
+      if (serviceName) {
+        keyvalues.service = serviceName;
+      }
+
+      keyvalues.uploadedAt = new Date().toISOString();
+      keyvalues.type = 'json';
+
+      metadata.keyvalues = keyvalues;
+
+      console.log('📁 Pinata metadata:', metadata);
+      formData.append('pinataMetadata', JSON.stringify(metadata));
 
       // Upload using API key + secret headers (like pebbble-write)
       const response = await fetch(this.uploadEndpoint, {
