@@ -108,12 +108,20 @@ export class PinataProvider extends IPFSProvider {
 
       const { userDid, serviceName, filename = 'data.json' } = options;
 
-      // Convert JSON to File object
+      // Step 1: Get or create service group
+      let serviceGroupId = null;
+      if (userDid && serviceName) {
+        // Create group name: "{userDID-prefix} - {serviceName}"
+        const userPrefix = userDid.substring(0, 12);
+        const serviceGroupName = `${userPrefix} - ${serviceName}`;
+        serviceGroupId = await this.getOrCreateGroup(serviceGroupName, true);
+      }
+
+      // Step 2: Upload file
       const jsonString = JSON.stringify(jsonData, null, 2);
       const blob = new Blob([jsonString], { type: 'application/json' });
       const file = new File([blob], filename, { type: 'application/json' });
 
-      // Create FormData
       const formData = new FormData();
       formData.append('file', file);
 
@@ -134,10 +142,14 @@ export class PinataProvider extends IPFSProvider {
         metadata.keyvalues.service = serviceName;
       }
 
+      if (serviceGroupId) {
+        metadata.keyvalues.groupId = serviceGroupId;
+      }
+
       console.log('📁 Pinata metadata:', metadata);
       formData.append('pinataMetadata', JSON.stringify(metadata));
 
-      // Upload using v1 API (no CORS, no build step, works!)
+      // Upload using v1 API
       const response = await fetch(this.uploadEndpoint, {
         method: 'POST',
         headers: {
@@ -160,12 +172,91 @@ export class PinataProvider extends IPFSProvider {
       }
 
       console.log('✅ Uploaded to Pinata, CID:', cid);
-      console.log('📋 Filter in Pinata by userDid:', userDid, 'or service:', serviceName);
+
+      // Step 3: Add file to service group
+      if (serviceGroupId) {
+        await this.addFileToGroup(serviceGroupId, cid, true);
+      }
 
       return cid;
 
     } catch (error) {
       console.error('❌ Pinata upload error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * List all groups
+   * @param {boolean} isPublic - List public or private groups
+   * @returns {Promise<Array>} Array of groups
+   */
+  async listGroups(isPublic = true) {
+    try {
+      const network = isPublic ? 'public' : 'private';
+      const response = await fetch(`${this.groupsEndpoint}/${network}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${this.jwt}`
+        }
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to list groups (${response.status}): ${errorText}`);
+      }
+
+      const data = await response.json();
+      const groups = data.data?.groups || data.groups || [];
+      console.log(`📋 Found ${groups.length} groups`);
+      return groups;
+
+    } catch (error) {
+      console.error('❌ List groups failed:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Create a new group
+   * @param {string} groupName - Name of the group
+   * @param {boolean} isPublic - Whether the group is public
+   * @returns {Promise<Object|null>} Group object with id, name, etc.
+   */
+  async createGroup(groupName, isPublic = true) {
+    try {
+      const network = isPublic ? 'public' : 'private';
+      console.log('📁 Creating group:', groupName);
+
+      const response = await fetch(`${this.groupsEndpoint}/${network}`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.jwt}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          name: groupName,
+          is_public: isPublic
+        })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to create group (${response.status}): ${errorText}`);
+      }
+
+      const data = await response.json();
+      const group = data.data || data;
+
+      console.log('✅ Created group:', groupName, 'ID:', group.id);
+
+      // Cache it
+      this.groupCache[groupName] = group.id;
+
+      return group;
+
+    } catch (error) {
+      console.error('❌ Create group failed:', error);
       throw error;
     }
   }
@@ -318,6 +409,111 @@ export class PinataProvider extends IPFSProvider {
 
     } catch (error) {
       console.warn('⚠️ Add file to group failed:', error.message);
+      return false;
+    }
+  }
+
+  /**
+   * Remove a file from a group
+   * @param {string} groupId - Group ID
+   * @param {string} cid - File CID to remove
+   * @param {boolean} isPublic - Whether the group is public
+   * @returns {Promise<boolean>} Success status
+   */
+  async removeFileFromGroup(groupId, cid, isPublic = true) {
+    try {
+      const network = isPublic ? 'public' : 'private';
+      console.log(`🗑️ Removing file ${cid} from group ${groupId}`);
+
+      const response = await fetch(`${this.groupsEndpoint}/${network}/${groupId}/ids/${cid}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${this.jwt}`
+        }
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.warn(`⚠️ Failed to remove file from group (${response.status}):`, errorText);
+        return false;
+      }
+
+      console.log('✅ File removed from group successfully');
+      return true;
+
+    } catch (error) {
+      console.error('❌ Remove file from group failed:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Get a specific group by ID
+   * @param {string} groupId - Group ID
+   * @param {boolean} isPublic - Whether the group is public
+   * @returns {Promise<Object|null>} Group object
+   */
+  async getGroup(groupId, isPublic = true) {
+    try {
+      const network = isPublic ? 'public' : 'private';
+      const response = await fetch(`${this.groupsEndpoint}/${network}/${groupId}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${this.jwt}`
+        }
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to get group (${response.status}): ${errorText}`);
+      }
+
+      const data = await response.json();
+      return data.data || data;
+
+    } catch (error) {
+      console.error('❌ Get group failed:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Delete a group
+   * @param {string} groupId - Group ID to delete
+   * @param {boolean} isPublic - Whether the group is public
+   * @returns {Promise<boolean>} Success status
+   */
+  async deleteGroup(groupId, isPublic = true) {
+    try {
+      const network = isPublic ? 'public' : 'private';
+      console.log('🗑️ Deleting group:', groupId);
+
+      const response = await fetch(`${this.groupsEndpoint}/${network}/${groupId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${this.jwt}`
+        }
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to delete group (${response.status}): ${errorText}`);
+      }
+
+      console.log('✅ Group deleted successfully');
+
+      // Remove from cache
+      for (const [name, id] of Object.entries(this.groupCache)) {
+        if (id === groupId) {
+          delete this.groupCache[name];
+          break;
+        }
+      }
+
+      return true;
+
+    } catch (error) {
+      console.error('❌ Delete group failed:', error);
       return false;
     }
   }
