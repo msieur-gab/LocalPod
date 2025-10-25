@@ -217,6 +217,8 @@ export class PinataProvider extends IPFSProvider {
 
       if (listResponse.ok) {
         const listData = await listResponse.json();
+        console.log('📋 List response:', listData);
+
         if (listData.groups && listData.groups.length > 0) {
           const existingGroup = listData.groups.find(g => g.name === groupName);
           if (existingGroup) {
@@ -225,6 +227,8 @@ export class PinataProvider extends IPFSProvider {
             return existingGroup.id;
           }
         }
+      } else {
+        console.warn('⚠️ List groups failed:', listResponse.status);
       }
 
       // Step 2: Create group if it doesn't exist
@@ -243,6 +247,34 @@ export class PinataProvider extends IPFSProvider {
 
       if (!createResponse.ok) {
         const errorText = await createResponse.text();
+
+        // If 409 Conflict, the group exists - fetch it
+        if (createResponse.status === 409) {
+          console.log('⚠️ Group already exists (409), fetching ID...');
+
+          // Try to list and find it
+          const retryListResponse = await fetch(`${this.groupsEndpoint}/${network}?name=${encodeURIComponent(groupName)}`, {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${this.jwt}`
+            }
+          });
+
+          if (retryListResponse.ok) {
+            const retryListData = await retryListResponse.json();
+            console.log('📋 Retry list response:', retryListData);
+
+            if (retryListData.groups && retryListData.groups.length > 0) {
+              const existingGroup = retryListData.groups.find(g => g.name === groupName);
+              if (existingGroup) {
+                console.log('✅ Found existing group:', groupName, 'ID:', existingGroup.id);
+                this.groupCache[groupName] = existingGroup.id;
+                return existingGroup.id;
+              }
+            }
+          }
+        }
+
         throw new Error(`Failed to create group (${createResponse.status}): ${errorText}`);
       }
 
