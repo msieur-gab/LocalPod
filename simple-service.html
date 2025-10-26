@@ -112,6 +112,13 @@
       <div id="status-msg"></div>
 
       <h2 style="margin: 2rem 0 1rem;">Your Content</h2>
+
+      <!-- Search and Filter -->
+      <div style="margin-bottom: 1rem;">
+        <input type="text" id="search-input" placeholder="🔍 Search posts by title or content..."
+               style="margin-bottom: 0;">
+      </div>
+
       <div id="items-list"></div>
     </div>
   </div>
@@ -137,7 +144,8 @@
     const SERVICE_CONFIG = {
       did: 'did:key:z6MkpSimpleServiceExampleDID123456789',
       name: 'Simple Service',
-      resourcePath: 'simple-service/data.json'
+      resourcePath: 'simple-service/data.json',
+      gateway: 'aqua-historical-crab-11.mypinata.cloud' // Custom Pinata gateway
     };
 
     // ============================================================
@@ -147,8 +155,12 @@
       ucanToken: null,           // UCAN capability token (7-day expiration)
       storageProvider: null,      // IPFS provider instance (from ipfs-providers.js)
       userPublicKey: null,       // User's public key for IPFS path
-      ipfsCid: null,             // IPFS CID of the uploaded data
-      items: []                  // Saved items
+      serviceIndexCid: null,     // IPFS CID of the service.json index file
+      groupId: null,             // Pinata group ID for organizing posts
+      items: [],                 // Cached list of posts from index
+      filteredItems: [],         // Filtered items for search
+      searchQuery: '',           // Current search query
+      editingPostId: null        // ID of post currently being edited
     };
 
     // ============================================================
@@ -163,7 +175,8 @@
       contentInput: document.getElementById('content-input'),
       saveBtn: document.getElementById('save-btn'),
       statusMsg: document.getElementById('status-msg'),
-      itemsList: document.getElementById('items-list')
+      itemsList: document.getElementById('items-list'),
+      searchInput: document.getElementById('search-input')
     };
 
     // ============================================================
@@ -176,8 +189,39 @@
       if (window.location.hash) {
         await handleCallback();
       } else {
-        // Show authentication UI
-        showAuthSection();
+        // Check for existing grant in localStorage
+        const stored = localStorage.getItem('simple-service:grant');
+        if (stored) {
+          try {
+            const grant = JSON.parse(stored);
+
+            // Check if grant has expired
+            if (grant.expiresAt) {
+              const expiresAt = new Date(grant.expiresAt);
+              const now = new Date();
+
+              if (now >= expiresAt) {
+                console.log('⚠️ Grant has expired, re-authentication required');
+                localStorage.removeItem('simple-service:grant');
+                showAuthSection();
+                return;
+              }
+
+              const timeLeft = Math.floor((expiresAt - now) / (1000 * 60 * 60 * 24));
+              console.log(`✅ Grant valid for ${timeLeft} more days`);
+            }
+
+            console.log('✅ Found existing grant in localStorage, loading app...');
+            await loadApp();
+          } catch (error) {
+            console.error('❌ Failed to parse stored grant:', error);
+            localStorage.removeItem('simple-service:grant');
+            showAuthSection();
+          }
+        } else {
+          console.log('ℹ️ No existing grant found, showing authentication UI');
+          showAuthSection();
+        }
       }
     }
 
@@ -228,11 +272,18 @@
 
       // Create storage provider instance
       if (grant.storageProvider) {
+        // Use custom gateway if available
+        const config = {
+          ...grant.storageProvider.config,
+          gateway: SERVICE_CONFIG.gateway
+        };
+
         state.storageProvider = createProvider(
           grant.storageProvider.provider,
-          grant.storageProvider.config
+          config
         );
         console.log(`✅ Storage provider initialized: ${grant.storageProvider.provider}`);
+        console.log(`✅ Using custom gateway: ${SERVICE_CONFIG.gateway}`);
       } else {
         console.warn('⚠️  No storage provider configured - uploads will fail');
       }
@@ -241,11 +292,33 @@
       state.ucanToken = grant.ucan;
       state.userPublicKey = grant.userPublicKey;
 
+      // Create or retrieve group for organizing posts
+      if (state.storageProvider) {
+        try {
+          const groups = await listGroupsDirect();
+          const serviceGroup = groups.find(g => g.name === SERVICE_CONFIG.name && g.isPublic);
+
+          if (serviceGroup) {
+            state.groupId = serviceGroup.id;
+            console.log(`✅ Found existing group: ${state.groupId}`);
+          } else {
+            // Create new group
+            const groupData = await createGroupDirect(SERVICE_CONFIG.name, true);
+            state.groupId = groupData?.id;
+            console.log(`✅ Created new group: ${state.groupId}`);
+          }
+        } catch (error) {
+          console.warn('⚠️ Could not set up group:', error);
+          state.groupId = null;
+        }
+      }
+
       // Persist to localStorage for future sessions
       localStorage.setItem('simple-service:grant', JSON.stringify({
         ucanToken: grant.ucan,
         storageProvider: grant.storageProvider,  // Store provider config
         userPublicKey: grant.userPublicKey,
+        groupId: state.groupId,
         expiresAt: grant.expiresAt,
         receivedAt: new Date().toISOString()
       }));
@@ -286,7 +359,8 @@
 
         state.ucanToken = grant.ucanToken;
         state.userPublicKey = grant.userPublicKey;
-        state.ipfsCid = grant.ipfsCid || null;
+        state.serviceIndexCid = grant.serviceIndexCid || null;
+        state.groupId = grant.groupId || null;
 
         // Recreate storage provider instance
         if (grant.storageProvider) {
@@ -297,11 +371,18 @@
             console.log('💾 Char codes:', Array.from(grant.storageProvider.config.jwt.substring(140, 160)).map(c => c.charCodeAt(0)));
           }
 
+          // Use custom gateway if available
+          const config = {
+            ...grant.storageProvider.config,
+            gateway: SERVICE_CONFIG.gateway
+          };
+
           state.storageProvider = createProvider(
             grant.storageProvider.provider,
-            grant.storageProvider.config
+            config
           );
           console.log(`✅ Storage provider restored: ${grant.storageProvider.provider}`);
+          console.log(`✅ Using custom gateway: ${SERVICE_CONFIG.gateway}`);
         } else {
           console.warn('⚠️  No storage provider in saved grant');
         }
@@ -310,8 +391,32 @@
           hasUcan: !!state.ucanToken,
           hasProvider: !!state.storageProvider,
           userPublicKey: state.userPublicKey,
-          ipfsCid: state.ipfsCid
+          serviceIndexCid: state.serviceIndexCid,
+          groupId: state.groupId
         });
+
+        // Ensure group exists if we have a provider but no group ID
+        if (state.storageProvider && !state.groupId) {
+          try {
+            const groups = await listGroupsDirect();
+            const serviceGroup = groups.find(g => g.name === SERVICE_CONFIG.name && g.isPublic);
+
+            if (serviceGroup) {
+              state.groupId = serviceGroup.id;
+              console.log(`✅ Found existing group: ${state.groupId}`);
+            } else {
+              const groupData = await createGroupDirect(SERVICE_CONFIG.name, true);
+              state.groupId = groupData?.id;
+              console.log(`✅ Created new group: ${state.groupId}`);
+            }
+
+            // Update localStorage with group ID
+            stored.groupId = state.groupId;
+            localStorage.setItem('simple-service:grant', JSON.stringify(stored));
+          } catch (error) {
+            console.warn('⚠️ Could not set up group:', error);
+          }
+        }
       }
 
       // Load data from IPFS
@@ -322,12 +427,116 @@
     }
 
     /**
+     * Recover orphaned posts from Pinata group (progressive loading)
+     * Used when index doesn't exist but posts might have been uploaded
+     */
+    async function recoverOrphanedPosts() {
+      if (!state.groupId) {
+        console.log('ℹ️ No group ID, cannot recover posts');
+        return [];
+      }
+
+      try {
+        console.log('🔍 Checking for orphaned posts in group:', state.groupId);
+
+        // List files in the group using v3 API
+        const response = await callPinataV3Direct(
+          `/v3/files/public?group=${state.groupId}&limit=100`,
+          'GET'
+        );
+
+        const files = response?.data?.files || [];
+        const blogPostFiles = files.filter(
+          f => f.keyvalues?.type === 'blog-post' &&
+               f.name !== 'service.json' &&
+               f.keyvalues?.deleted !== 'true' // Exclude deleted posts
+        );
+
+        if (blogPostFiles.length === 0) {
+          return [];
+        }
+
+        console.log(`✅ Found ${blogPostFiles.length} orphaned posts`);
+
+        // Create posts with metadata immediately
+        const posts = blogPostFiles.map(f => ({
+          id: Date.now() + Math.random(),
+          title: f.keyvalues?.title || 'Untitled',
+          slug: f.keyvalues?.slug || 'untitled',
+          cid: f.cid,
+          fileId: f.id, // Store Pinata file ID for future operations
+          filename: f.name,
+          createdAt: f.keyvalues?.createdAt || f.created_at,
+          contentPreview: '(Loading...)',
+          content: null,
+          loading: true
+        }));
+
+        // Return immediately for fast UI display
+        setTimeout(() => {
+          // Load content progressively in background
+          console.log(`📥 Loading full content in background...`);
+          blogPostFiles.forEach(async (f, index) => {
+            try {
+              const postContent = await state.storageProvider.download(f.cid);
+
+              // Update the post with full content
+              state.items[index] = {
+                id: postContent.id || posts[index].id,
+                title: postContent.title || f.keyvalues?.title || 'Untitled',
+                slug: postContent.slug || f.keyvalues?.slug || 'untitled',
+                cid: f.cid,
+                fileId: f.id, // Preserve file ID
+                filename: f.name,
+                createdAt: postContent.createdAt || f.keyvalues?.createdAt || f.created_at,
+                contentPreview: postContent.content
+                  ? postContent.content.substring(0, 150) + (postContent.content.length > 150 ? '...' : '')
+                  : '(No content)',
+                content: postContent.content,
+                loading: false
+              };
+
+              renderItems();
+              console.log(`✅ Loaded content for: ${state.items[index].title}`);
+            } catch (error) {
+              console.warn(`⚠️ Could not download content for ${f.name}:`, error);
+              state.items[index] = {
+                ...posts[index],
+                contentPreview: '(Failed to load content)',
+                loading: false,
+                loadError: true
+              };
+              renderItems();
+            }
+          });
+        }, 0);
+
+        return posts;
+      } catch (error) {
+        console.warn('⚠️ Could not recover orphaned posts:', error);
+        return [];
+      }
+    }
+
+    /**
      * Load data from IPFS
+     * Loads the service.json index file which contains references to all individual posts
      */
     async function loadData() {
-      if (!state.ipfsCid) {
-        console.log('No IPFS CID yet (this is normal for first use)');
-        state.items = [];
+      if (!state.serviceIndexCid) {
+        console.log('No service index CID yet - checking for orphaned posts...');
+
+        // Try to recover any orphaned posts
+        const orphanedPosts = await recoverOrphanedPosts();
+
+        if (orphanedPosts.length > 0) {
+          state.items = orphanedPosts;
+          console.log(`📋 Found ${orphanedPosts.length} orphaned posts - they will be added to the index on next save`);
+        } else {
+          state.items = [];
+          console.log('ℹ️ No posts found (this is normal for first use)');
+        }
+
         renderItems();
         return;
       }
@@ -340,22 +549,271 @@
       }
 
       try {
-        console.log('📥 Loading data from IPFS via provider:', state.ipfsCid);
+        console.log('📥 Loading service index from IPFS:', state.serviceIndexCid);
 
-        // Use provider to download
-        const data = await state.storageProvider.download(state.ipfsCid);
-        state.items = data.items || [];
-        console.log(`✅ Loaded ${state.items.length} items from IPFS`);
-        renderItems();
+        // Load the index file
+        const indexData = await state.storageProvider.download(state.serviceIndexCid);
+        const postReferences = indexData.posts || [];
+
+        // Show posts immediately with metadata from index
+        state.items = postReferences.map(ref => ({
+          ...ref,
+          content: null, // Mark as not loaded yet
+          loading: true
+        }));
+
+        console.log(`✅ Loaded ${state.items.length} posts from index`);
+        renderItems(); // Render immediately with previews
+
+        // Load full content progressively in the background
+        console.log(`📥 Loading full content in background...`);
+        postReferences.forEach(async (ref, index) => {
+          try {
+            // Download the actual post content from IPFS
+            const postContent = await state.storageProvider.download(ref.cid);
+
+            // Update the specific post with full content
+            state.items[index] = {
+              ...ref,
+              content: postContent.content,
+              contentPreview: ref.contentPreview || (
+                postContent.content
+                  ? postContent.content.substring(0, 150) + (postContent.content.length > 150 ? '...' : '')
+                  : '(No content)'
+              ),
+              loading: false
+            };
+
+            // Re-render to show the updated post
+            renderItems();
+            console.log(`✅ Loaded content for: ${ref.title}`);
+          } catch (error) {
+            console.warn(`⚠️ Could not download content for ${ref.title}:`, error);
+            // Mark as failed but keep reference data
+            state.items[index] = {
+              ...ref,
+              loading: false,
+              loadError: true
+            };
+            renderItems();
+          }
+        });
+
       } catch (error) {
-        console.log('Failed to load data from IPFS:', error);
+        console.log('Failed to load service index from IPFS:', error);
         state.items = [];
         renderItems();
       }
     }
 
     /**
-     * Save new item to IPFS
+     * Helper function to sanitize filename
+     */
+    function sanitizeFileName(name) {
+      return name
+        .toLowerCase()
+        .trim()
+        .replace(/[\\s_]+/g, '-')
+        .replace(/[^a-z0-9.-]/g, '')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '');
+    }
+
+    /**
+     * Convert ArrayBuffer to Base64
+     */
+    function arrayBufferToBase64(buffer) {
+      let binary = '';
+      const bytes = new Uint8Array(buffer);
+      const chunkSize = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunkSize) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+      }
+      return btoa(binary);
+    }
+
+    /**
+     * Upload to Pinata via upload proxy
+     */
+    async function uploadToProxy({ jsonData, fileName, groupId, metadataName, metadataKeyvalues }) {
+      console.log('📤 uploadToProxy called with:', { fileName, groupId, metadataName });
+
+      const jwt = requireJwt();
+
+      // Convert JSON to base64
+      const encoder = new TextEncoder();
+      const jsonBuffer = encoder.encode(JSON.stringify(jsonData, null, 2));
+      const base64 = arrayBufferToBase64(jsonBuffer.buffer);
+
+      const payload = {
+        jwt,
+        fileName,
+        fileData: base64,
+        isPrivate: false // Simple service uses public network
+      };
+
+      if (groupId) {
+        payload.groupId = groupId;
+      }
+
+      const enrichedMetadata = {};
+      if (metadataName) {
+        enrichedMetadata.name = metadataName;
+      }
+      if (metadataKeyvalues && Object.keys(metadataKeyvalues).length > 0) {
+        enrichedMetadata.keyvalues = metadataKeyvalues;
+      }
+      if (Object.keys(enrichedMetadata).length > 0) {
+        payload.metadata = enrichedMetadata;
+      }
+
+      console.log('📦 Sending to proxy:', { fileName, hasJwt: !!jwt, groupId, metadata: enrichedMetadata });
+
+      const response = await fetch('./pinata-upload-proxy.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      console.log('📥 Proxy response status:', response.status);
+
+      // Get the raw response text first
+      const responseText = await response.text();
+      console.log('📥 Raw response (first 500 chars):', responseText.substring(0, 500));
+
+      // Try to parse as JSON
+      let data;
+      try {
+        data = JSON.parse(responseText);
+        console.log('📥 Proxy response data:', data);
+      } catch (err) {
+        console.error('❌ Failed to parse response as JSON:', err);
+        console.error('❌ Full response:', responseText);
+        return {};
+      }
+
+      if (!response.ok) {
+        const errorMsg = data?.error?.message || data?.message || data?.error || 'Upload failed';
+        throw new Error(`${errorMsg} (${response.status})`);
+      }
+
+      return data;
+    }
+
+    function requireJwt() {
+      if (!state.storageProvider || !state.storageProvider.jwt) {
+        console.error('❌ JWT not available. Provider:', state.storageProvider);
+        throw new Error('No JWT available');
+      }
+      console.log('✅ JWT found:', state.storageProvider.jwt.substring(0, 50) + '...');
+      return state.storageProvider.jwt;
+    }
+
+    /**
+     * Call Pinata v3 API directly (without PHP proxy)
+     * Bypasses CORS issues by using direct fetch
+     */
+    async function callPinataV3Direct(endpoint, method = 'GET', body = null) {
+      const jwt = requireJwt();
+      const url = `https://api.pinata.cloud${endpoint}`;
+
+      console.log(`🌐 Direct v3 API call: ${method} ${url}`);
+
+      const options = {
+        method,
+        headers: {
+          'Authorization': `Bearer ${jwt}`,
+          'Content-Type': 'application/json'
+        }
+      };
+
+      if (body && (method === 'POST' || method === 'PUT')) {
+        options.body = JSON.stringify(body);
+      }
+
+      try {
+        const response = await fetch(url, options);
+        const data = await response.json();
+
+        if (!response.ok) {
+          const errorMsg = data?.error || data?.message || 'API request failed';
+          throw new Error(`${errorMsg} (${response.status})`);
+        }
+
+        return data;
+      } catch (error) {
+        console.error('❌ Direct API call failed:', error);
+        throw error;
+      }
+    }
+
+    /**
+     * List groups using direct v3 API
+     */
+    async function listGroupsDirect() {
+      try {
+        const publicGroups = [];
+        const privateGroups = [];
+
+        // Fetch public groups
+        try {
+          const publicData = await callPinataV3Direct('/v3/groups/public', 'GET');
+          const items = publicData?.data?.groups || publicData?.groups || [];
+          items.forEach(g => {
+            g.isPublic = true;
+            publicGroups.push(g);
+          });
+        } catch (error) {
+          console.warn('⚠️ Could not fetch public groups:', error.message);
+        }
+
+        // Fetch private groups
+        try {
+          const privateData = await callPinataV3Direct('/v3/groups/private', 'GET');
+          const items = privateData?.data?.groups || privateData?.groups || [];
+          items.forEach(g => {
+            g.isPublic = false;
+            privateGroups.push(g);
+          });
+        } catch (error) {
+          console.warn('⚠️ Could not fetch private groups:', error.message);
+        }
+
+        const allGroups = [...publicGroups, ...privateGroups];
+        console.log(`📋 Found ${allGroups.length} groups (${publicGroups.length} public, ${privateGroups.length} private)`);
+        return allGroups;
+      } catch (error) {
+        console.error('❌ List groups failed:', error);
+        return [];
+      }
+    }
+
+    /**
+     * Create group using direct v3 API
+     */
+    async function createGroupDirect(name, isPublic = true) {
+      const network = isPublic ? 'public' : 'private';
+      const data = await callPinataV3Direct(`/v3/groups/${network}`, 'POST', { name });
+      return data?.data || data;
+    }
+
+    /**
+     * Update file metadata using direct v3 API
+     */
+    async function updateFileMetadata(fileId, updates) {
+      try {
+        const data = await callPinataV3Direct(`/v3/files/public/${fileId}`, 'PUT', updates);
+        console.log(`✅ Updated metadata for file ${fileId}`);
+        return data?.data || data;
+      } catch (error) {
+        console.error('❌ Failed to update file metadata:', error);
+        throw error;
+      }
+    }
+
+    /**
+     * Save or update item to IPFS
+     * Each post is saved as an individual file, and the service.json index is updated
      */
     async function saveItem() {
       const title = dom.titleInput.value.trim();
@@ -371,46 +829,153 @@
         return;
       }
 
+      const isEditing = state.editingPostId !== null;
+      const existingPost = isEditing ? state.items.find(p => p.id === state.editingPostId) : null;
+
       try {
         dom.saveBtn.disabled = true;
-        showStatus('info', 'Saving to IPFS...');
+        showStatus('info', isEditing ? 'Updating post...' : 'Saving post to IPFS...');
 
-        // Add new item
-        const item = {
-          id: Date.now(),
+        const now = new Date().toISOString();
+        const postId = isEditing ? existingPost.id : Date.now();
+        const slug = sanitizeFileName(title) || `post-${postId}`;
+        const filename = `${slug}.json`;
+
+        // Create post data
+        const postData = {
+          id: postId,
           title,
+          slug,
           content,
-          createdAt: new Date().toISOString()
-        };
-        state.items.unshift(item);
-
-        // Prepare data for upload
-        const data = {
-          items: state.items,
-          updatedAt: new Date().toISOString()
+          createdAt: isEditing ? existingPost.createdAt : now, // Preserve original creation date
+          updatedAt: now
         };
 
-        // Upload to IPFS using provider with folder organization
-        const ipfsCid = await state.storageProvider.upload(data, {
-          userDid: state.userPublicKey,
-          serviceName: SERVICE_CONFIG.name,
-          filename: 'data.json'
+        // Upload individual post file with metadata
+        console.log('📤 Uploading post file:', filename);
+        const postResponse = await uploadToProxy({
+          jsonData: postData,
+          fileName: filename,
+          groupId: state.groupId,
+          metadataName: filename,
+          metadataKeyvalues: {
+            title: title,
+            slug: slug,
+            type: 'blog-post',
+            createdAt: now
+          }
         });
 
-        state.ipfsCid = ipfsCid;
-        console.log('✅ Saved to IPFS - CID:', ipfsCid);
-        console.log('📁 Organized under:', `${state.userPublicKey}/${SERVICE_CONFIG.name}/data.json`);
+        const postCid = postResponse?.data?.cid || postResponse?.cid;
+        const postFileId = postResponse?.data?.id || postResponse?.id;
+        console.log('✅ Post saved - CID:', postCid, 'File ID:', postFileId);
 
-        // Update localStorage with new CID
+        // Load existing index or create new one
+        let indexData = { posts: [] };
+        if (state.serviceIndexCid) {
+          try {
+            indexData = await state.storageProvider.download(state.serviceIndexCid);
+            console.log('📥 Loaded existing index with', indexData.posts?.length || 0, 'posts');
+          } catch (error) {
+            console.log('ℹ️ Could not load existing index, creating new one');
+          }
+        } else if (state.items.length > 0) {
+          // If we have recovered orphaned posts, include them
+          console.log('📋 Including', state.items.length, 'recovered posts in new index');
+          // Keep the full post data from recovered posts
+          indexData.posts = state.items.map(item => ({
+            id: item.id,
+            title: item.title,
+            slug: item.slug,
+            cid: item.cid,
+            fileId: item.fileId, // Preserve file ID
+            filename: item.filename,
+            createdAt: item.createdAt,
+            contentPreview: item.contentPreview
+          }));
+        }
+
+        // Create post reference for index
+        const postReference = {
+          id: postId,
+          title,
+          slug,
+          cid: postCid,
+          fileId: postFileId, // Pinata file ID for metadata updates
+          filename,
+          createdAt: isEditing ? existingPost.createdAt : now, // Preserve original creation date
+          contentPreview: content.substring(0, 150) + (content.length > 150 ? '...' : '')
+        };
+
+        indexData.posts = indexData.posts || [];
+
+        if (isEditing) {
+          // Update existing post in index
+          const existingIndex = indexData.posts.findIndex(p => p.id === postId);
+          if (existingIndex !== -1) {
+            indexData.posts[existingIndex] = postReference;
+            console.log('✅ Updated existing post in index');
+          } else {
+            // Fallback: add as new if not found
+            indexData.posts.unshift(postReference);
+          }
+        } else {
+          // Add new post at the beginning
+          indexData.posts.unshift(postReference);
+        }
+
+        indexData.updatedAt = now;
+        indexData.totalPosts = indexData.posts.length;
+
+        // Upload updated index
+        console.log('📤 Uploading updated index...');
+        const indexResponse = await uploadToProxy({
+          jsonData: indexData,
+          fileName: 'service.json',
+          groupId: state.groupId,
+          metadataName: 'service.json',
+          metadataKeyvalues: {
+            type: 'service-index',
+            service: SERVICE_CONFIG.name,
+            totalPosts: String(indexData.totalPosts), // Convert to string
+            updatedAt: now
+          }
+        });
+
+        const newIndexCid = indexResponse?.data?.cid || indexResponse?.cid;
+        state.serviceIndexCid = newIndexCid;
+        console.log('✅ Index updated - CID:', newIndexCid);
+        console.log('📁 Total posts:', indexData.totalPosts);
+
+        // Update localStorage with new index CID
         const stored = JSON.parse(localStorage.getItem('simple-service:grant') || '{}');
-        stored.ipfsCid = ipfsCid;
+        stored.serviceIndexCid = newIndexCid;
         localStorage.setItem('simple-service:grant', JSON.stringify(stored));
 
-        showStatus('success', 'Saved to IPFS!');
+        // Update local state
+        if (isEditing) {
+          // Update the specific post in state
+          const stateIndex = state.items.findIndex(p => p.id === postId);
+          if (stateIndex !== -1) {
+            state.items[stateIndex] = {
+              ...postReference,
+              content: content,
+              loading: false
+            };
+          }
+        } else {
+          // Reload all posts from index
+          state.items = indexData.posts;
+        }
 
-        // Clear inputs
+        showStatus('success', isEditing ? 'Post updated on IPFS!' : 'Post saved to IPFS!');
+
+        // Clear inputs and reset edit mode
         dom.titleInput.value = '';
         dom.contentInput.value = '';
+        dom.saveBtn.textContent = '💾 Save to IPFS';
+        dom.saveBtn.style.background = '#667eea';
+        state.editingPostId = null;
 
         // Re-render
         renderItems();
@@ -418,7 +983,6 @@
       } catch (error) {
         console.error('❌ Save failed:', error);
         showStatus('error', `Save failed: ${error.message}`);
-        state.items.shift(); // Remove failed item
       } finally {
         dom.saveBtn.disabled = false;
       }
@@ -451,19 +1015,220 @@
     }
 
     function renderItems() {
-      if (state.items.length === 0) {
-        dom.itemsList.innerHTML = '<div class="status info">No items yet. Create your first one above!</div>';
+      // Use filtered items if searching, otherwise use all items
+      const itemsToShow = state.searchQuery ? state.filteredItems : state.items;
+
+      if (itemsToShow.length === 0) {
+        if (state.searchQuery) {
+          dom.itemsList.innerHTML = '<div class="status info">No posts found matching "' + escapeHtml(state.searchQuery) + '"</div>';
+        } else {
+          dom.itemsList.innerHTML = '<div class="status info">No items yet. Create your first one above!</div>';
+        }
         return;
       }
 
-      dom.itemsList.innerHTML = state.items.map(item => `
-        <div class="item">
-          <strong>${escapeHtml(item.title)}</strong>
-          <p>${escapeHtml(item.content)}</p>
-          <div class="item-time">${new Date(item.createdAt).toLocaleString()}</div>
+      dom.itemsList.innerHTML = itemsToShow.map((item, index) => {
+        const hasFullContent = item.content && item.content.length > 150;
+        const isLoading = item.loading;
+        const preview = item.contentPreview || item.content || '';
+        const actualIndex = state.items.findIndex(i => i.id === item.id);
+
+        return `
+        <div class="item" style="opacity: ${isLoading ? '0.7' : '1'}; position: relative;"
+             id="post-${actualIndex}">
+          <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
+            <strong style="flex: 1; ${hasFullContent ? 'cursor: pointer;' : ''}"
+                    onclick="${hasFullContent ? `togglePost(${actualIndex})` : ''}">${escapeHtml(item.title)}</strong>
+            <div style="display: flex; gap: 8px;">
+              <button onclick="editPost(${actualIndex}); event.stopPropagation();"
+                      style="padding: 4px 10px; font-size: 0.85rem; background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid #38bdf8;">
+                ✏️ Edit
+              </button>
+              <button onclick="deletePost(${actualIndex}); event.stopPropagation();"
+                      style="padding: 4px 10px; font-size: 0.85rem; background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid #ef4444;">
+                🗑️ Delete
+              </button>
+            </div>
+          </div>
+          ${isLoading ? '<span style="color: #94a3b8; font-size: 0.85rem; margin-left: 8px;">⏳ Loading full content...</span>' : ''}
+          <p class="post-preview-${actualIndex}" style="${hasFullContent ? 'cursor: pointer;' : ''}"
+             onclick="${hasFullContent ? `togglePost(${actualIndex})` : ''}">${escapeHtml(preview)}</p>
+          ${hasFullContent ? `
+            <p class="post-full-${actualIndex}" style="display: none; cursor: pointer;"
+               onclick="togglePost(${actualIndex})">${escapeHtml(item.content)}</p>
+            <div class="post-toggle-${actualIndex}" style="color: #38bdf8; font-size: 0.85rem; margin-top: 8px; cursor: pointer;"
+                 onclick="togglePost(${actualIndex})">
+              Click to expand →
+            </div>
+          ` : ''}
+          <div class="item-time">
+            ${new Date(item.createdAt).toLocaleString()}
+            <span style="margin-left: 8px; color: #94a3b8; font-size: 0.75rem;">
+              CID: ${item.cid ? item.cid.substring(0, 12) + '...' : 'N/A'}
+            </span>
+            <a href="https://${SERVICE_CONFIG.gateway}/ipfs/${item.cid}"
+               target="_blank"
+               style="margin-left: 8px; color: #38bdf8; font-size: 0.75rem;"
+               onclick="event.stopPropagation()">
+              View on Gateway ↗
+            </a>
+          </div>
         </div>
-      `).join('');
+      `;
+      }).join('');
     }
+
+    // Search and filter posts
+    function filterPosts() {
+      const query = state.searchQuery.toLowerCase();
+
+      if (!query) {
+        state.filteredItems = [];
+        renderItems();
+        return;
+      }
+
+      state.filteredItems = state.items.filter(item => {
+        const titleMatch = item.title.toLowerCase().includes(query);
+        const contentMatch = item.content && item.content.toLowerCase().includes(query);
+        const previewMatch = item.contentPreview && item.contentPreview.toLowerCase().includes(query);
+
+        return titleMatch || contentMatch || previewMatch;
+      });
+
+      renderItems();
+      console.log(`🔍 Search "${query}": found ${state.filteredItems.length} results`);
+    }
+
+    // Toggle post expansion
+    window.togglePost = function(index) {
+      const preview = document.querySelector(`.post-preview-${index}`);
+      const full = document.querySelector(`.post-full-${index}`);
+      const toggle = document.querySelector(`.post-toggle-${index}`);
+
+      if (!preview || !full || !toggle) return;
+
+      const isExpanded = full.style.display !== 'none';
+
+      if (isExpanded) {
+        preview.style.display = 'block';
+        full.style.display = 'none';
+        toggle.textContent = 'Click to expand →';
+      } else {
+        preview.style.display = 'none';
+        full.style.display = 'block';
+        toggle.textContent = 'Click to collapse ↑';
+      }
+    };
+
+    // Edit post
+    window.editPost = function(index) {
+      const post = state.items[index];
+      if (!post) return;
+
+      // Populate form with existing post data
+      dom.titleInput.value = post.title;
+      dom.contentInput.value = post.content || '';
+      dom.saveBtn.textContent = '💾 Update Post';
+      dom.saveBtn.style.background = 'linear-gradient(135deg, #f59e0b, #d97706)';
+
+      // Store the post being edited
+      state.editingPostId = post.id;
+
+      // Scroll to top
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+
+      showStatus('info', `Editing: ${post.title}`);
+      console.log('✏️ Editing post:', post.title);
+    };
+
+    // Delete post
+    window.deletePost = async function(index) {
+      const post = state.items[index];
+      if (!post) return;
+
+      const confirmed = confirm(`Are you sure you want to delete "${post.title}"?\n\nThis will remove it from your index. The file will remain on IPFS but marked as deleted.`);
+
+      if (!confirmed) return;
+
+      try {
+        showStatus('info', 'Deleting post...');
+
+        // Mark file as deleted in Pinata metadata (prevents recovery as orphan)
+        if (post.fileId) {
+          try {
+            await updateFileMetadata(post.fileId, {
+              keyvalues: {
+                title: post.title,
+                slug: post.slug,
+                type: 'blog-post',
+                createdAt: post.createdAt,
+                deleted: 'true', // Mark as deleted
+                deletedAt: new Date().toISOString()
+              }
+            });
+            console.log('✅ Marked file as deleted in Pinata');
+          } catch (error) {
+            console.warn('⚠️ Could not mark file as deleted:', error);
+            // Continue with deletion anyway
+          }
+        }
+
+        // Remove from local state
+        state.items.splice(index, 1);
+
+        // Update index on IPFS
+        const indexData = {
+          posts: state.items.map(item => ({
+            id: item.id,
+            title: item.title,
+            slug: item.slug,
+            cid: item.cid,
+            fileId: item.fileId, // Preserve file ID
+            filename: item.filename,
+            createdAt: item.createdAt,
+            contentPreview: item.contentPreview
+          })),
+          updatedAt: new Date().toISOString(),
+          totalPosts: state.items.length
+        };
+
+        console.log('📤 Uploading updated index after deletion...');
+        const indexResponse = await uploadToProxy({
+          jsonData: indexData,
+          fileName: 'service.json',
+          groupId: state.groupId,
+          metadataName: 'service.json',
+          metadataKeyvalues: {
+            type: 'service-index',
+            service: SERVICE_CONFIG.name,
+            totalPosts: String(indexData.totalPosts),
+            updatedAt: indexData.updatedAt
+          }
+        });
+
+        const newIndexCid = indexResponse?.data?.cid || indexResponse?.cid;
+        state.serviceIndexCid = newIndexCid;
+
+        // Update localStorage
+        const stored = JSON.parse(localStorage.getItem('simple-service:grant') || '{}');
+        stored.serviceIndexCid = newIndexCid;
+        localStorage.setItem('simple-service:grant', JSON.stringify(stored));
+
+        console.log('✅ Post deleted and index updated');
+        showStatus('success', `Deleted: ${post.title}`);
+
+        // Re-render
+        renderItems();
+
+      } catch (error) {
+        console.error('❌ Delete failed:', error);
+        showStatus('error', `Delete failed: ${error.message}`);
+        // Re-add the post if delete failed
+        state.items.splice(index, 0, post);
+        renderItems();
+      }
+    };
 
     function escapeHtml(text) {
       const div = document.createElement('div');
@@ -477,6 +1242,12 @@
 
     dom.connectBtn.addEventListener('click', startAuthFlow);
     dom.saveBtn.addEventListener('click', saveItem);
+
+    // Search input listener
+    dom.searchInput.addEventListener('input', (e) => {
+      state.searchQuery = e.target.value.trim();
+      filterPosts();
+    });
 
     // ============================================================
     // START APPLICATION

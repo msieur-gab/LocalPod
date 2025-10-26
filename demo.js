@@ -5,13 +5,15 @@
 import { IdentityPlatform, isPasskeySupported } from '@localPod/identity-platform';
 import { getStorageConfig, saveStorageConfig, deleteStorageConfig } from './storage.js';
 import { config } from './config.js';
+import { PinataRemoteStorage } from './pinata-remote-storage.js';
 import QRCode from 'qrcode';
 
 // Global state
 let platform = null;
 let currentIdentity = null;
 let currentProfile = null;
-let hasRemoteStorage = false;  // Removed old S3 storage - profiles are local-only now
+let remoteStorage = null;  // Pinata-based remote storage
+let hasRemoteStorage = false;  // Dynamic: true when Pinata is configured
 let cachedCollaborators = [];
 
 // Expose for debugging in console
@@ -19,7 +21,282 @@ window.debugPlatform = {
   getPlatform: () => platform,
   getIdentity: () => currentIdentity,
   getProfile: () => currentProfile,
+  getRemoteStorage: () => remoteStorage,
 };
+
+/**
+ * Initialize Pinata remote storage with decrypted JWT
+ * Called after user logs in/signs up
+ */
+async function initializeRemoteStorage() {
+  if (!hasRemoteStorage) {
+    return; // No storage configured
+  }
+
+  if (remoteStorage) {
+    return; // Already initialized
+  }
+
+  if (!currentIdentity) {
+    console.warn('⚠️ Cannot initialize remote storage: no identity');
+    return;
+  }
+
+  try {
+    const storageConfig = await getStorageConfig();
+    if (!storageConfig) {
+      console.warn('⚠️ Storage config disappeared');
+      hasRemoteStorage = false;
+      return;
+    }
+
+    console.log('🔓 Decrypting Pinata JWT...');
+
+    // Decrypt the JWT using user's private key
+    const decoder = new TextDecoder();
+    const encoder = new TextEncoder();
+
+    const encryptedJwt = Uint8Array.from(atob(storageConfig.encryptedJwt), c => c.charCodeAt(0));
+    const iv = Uint8Array.from(atob(storageConfig.encryptionIv), c => c.charCodeAt(0));
+    const salt = Uint8Array.from(atob(storageConfig.encryptionSalt), c => c.charCodeAt(0));
+
+    // Get private key from identity
+    const privateKeyBytes = platform.accountService.getSigningPrivateKeyBytes();
+    if (!privateKeyBytes) {
+      throw new Error('Private key not available');
+    }
+
+    // Derive decryption key
+    const keyMaterial = await crypto.subtle.importKey(
+      'raw',
+      privateKeyBytes,
+      { name: 'HKDF' },
+      false,
+      ['deriveKey']
+    );
+
+    const decryptionKey = await crypto.subtle.deriveKey(
+      {
+        name: 'HKDF',
+        salt: salt,
+        info: encoder.encode('pinata-jwt-encryption'),
+        hash: 'SHA-256'
+      },
+      keyMaterial,
+      { name: 'AES-GCM', length: 256 },
+      false,
+      ['encrypt', 'decrypt']
+    );
+
+    // Decrypt the JWT
+    const decryptedJwt = await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv: iv },
+      decryptionKey,
+      encryptedJwt
+    );
+
+    const jwt = decoder.decode(decryptedJwt).trim();
+    console.log('✅ JWT decrypted');
+
+    await attachRemoteStorage(jwt, storageConfig.gateway || null);
+
+    showToast('Account backups enabled via Pinata', 'success');
+
+  } catch (error) {
+    console.error('❌ Failed to initialize remote storage:', error);
+    console.warn('⚠️ Continuing without backups');
+    hasRemoteStorage = false;
+    remoteStorage = null;
+    platform.remoteStorage = null;
+  }
+}
+
+/**
+ * Attach Pinata remote storage instance and optionally run initial sync
+ */
+async function attachRemoteStorage(jwt, gateway = null, { runBackupSync = true } = {}) {
+  if (!jwt) {
+    throw new Error('Pinata JWT is required to attach remote storage');
+  }
+
+  const instance = new PinataRemoteStorage({
+    jwt,
+    gateway: gateway || null
+  });
+
+  await instance.init();
+
+  remoteStorage = instance;
+  platform.remoteStorage = remoteStorage;
+  if (platform.profileService) {
+    platform.profileService.remoteStorage = remoteStorage;
+  }
+
+  hasRemoteStorage = true;
+
+  if (runBackupSync && currentIdentity) {
+    try {
+      // Simple Filebase pattern: ensure backup exists
+      await ensureBackupExists();
+
+      // Sync profile if exists
+      const existingProfile = await platform.getProfile(currentIdentity.publicKey);
+      if (existingProfile) {
+        await platform.saveProfile(
+          {
+            ...existingProfile,
+            publicKey: currentIdentity.publicKey,
+            encryptionPublicKey: currentIdentity.encryptionPublicKey,
+          },
+          { syncRemote: true }
+        );
+        console.log('✅ Profile synced');
+      }
+
+      // Sync collaborators using SDK's method
+      if (platform.collaboratorService?.persistCollaboratorsToRemote) {
+        await platform.collaboratorService.persistCollaboratorsToRemote();
+        console.log('✅ Collaborators synced');
+      }
+    } catch (error) {
+      console.warn('Failed to sync during attach:', error);
+    }
+  }
+
+  console.log('✅ Remote storage attached');
+  return remoteStorage;
+}
+
+/**
+ * Ensure remote storage is available when recovering an account
+ * Allows using a fresh JWT provided in the storage config form before login
+ */
+async function ensureRemoteStorageForRecovery() {
+  if (remoteStorage) {
+    return remoteStorage;
+  }
+
+  const providerSelect = document.getElementById('ipfs-provider');
+  const jwtInput = document.getElementById('provider-jwt');
+  const gatewayInput = document.getElementById('provider-gateway');
+
+  const provider = providerSelect?.value || '';
+  const jwt = jwtInput?.value.trim() || '';
+  const gateway = gatewayInput?.value.trim() || '';
+
+  if (provider !== 'pinata') {
+    throw new Error('Account recovery currently requires Pinata. Select Pinata and provide your API key.');
+  }
+
+  if (!jwt) {
+    throw new Error('Remote storage not configured. Paste your Pinata API key above before importing the account.');
+  }
+
+  try {
+    await attachRemoteStorage(jwt, gateway || null, { runBackupSync: false });
+  } catch (error) {
+    console.error('Failed to initialize Pinata storage for recovery:', error);
+    throw new Error('Could not connect to Pinata with the provided API key. Please verify the key and try again.');
+  }
+
+  return remoteStorage;
+}
+
+/**
+ * Load unified user backup directly from a CID via public gateways
+ */
+const PUBLIC_IPFS_GATEWAYS = [
+  'https://gateway.pinata.cloud/ipfs/',
+  'https://w3s.link/ipfs/',
+  'https://cloudflare-ipfs.com/ipfs/',
+  'https://ipfs.io/ipfs/',
+  'https://dweb.link/ipfs/'
+];
+
+async function loadUnifiedUserFromCid(cid, preferredGateway = null) {
+  if (!cid) {
+    throw new Error('CID is required to load backup');
+  }
+
+  const gateways = preferredGateway
+    ? [preferredGateway, ...PUBLIC_IPFS_GATEWAYS]
+    : [...PUBLIC_IPFS_GATEWAYS];
+
+  const uniqueGateways = Array.from(new Set(gateways));
+
+  for (const base of uniqueGateways) {
+    const separator = base.endsWith('/') ? '' : '/';
+    const url = `${base}${separator}${cid}`;
+
+    try {
+      console.log(`🌐 Attempting to fetch backup from ${url}`);
+      const response = await fetch(url, {
+        headers: { Accept: 'application/json' },
+        cache: 'no-store'
+      });
+
+      if (!response.ok) {
+        console.warn(`⚠️ Gateway responded with ${response.status}`);
+        continue;
+      }
+
+      const text = await response.text();
+      if (!text) {
+        console.warn('⚠️ Gateway returned empty response');
+        continue;
+      }
+
+      try {
+        const json = JSON.parse(text);
+        console.log('✅ Backup JSON parsed from gateway');
+        return json;
+      } catch (parseError) {
+        console.warn('⚠️ Failed to parse JSON from gateway response', parseError);
+      }
+    } catch (error) {
+      console.warn(`⚠️ Gateway fetch failed: ${error.message}`);
+    }
+  }
+
+  throw new Error('Could not fetch backup from public IPFS gateways. Double-check the CID and try again.');
+}
+
+// Removed saveCompleteUserState - using SDK's built-in methods instead
+
+/**
+ * Ensure encrypted backup exists on Pinata
+ * Simple Filebase-style: just save what we have
+ */
+async function ensureBackupExists() {
+  if (!currentIdentity || !remoteStorage) {
+    return;
+  }
+
+  try {
+    console.log('🔍 Ensuring backup exists...');
+
+    // Check if backup exists
+    const existingFile = await remoteStorage.loadUnifiedUser(currentIdentity.publicKey);
+
+    if (existingFile && existingFile.private) {
+      console.log('✅ Backup already exists');
+      return;
+    }
+
+    // Save backup using SDK's method
+    console.log('📤 Creating initial backup...');
+    const backupPayload = platform.accountService.getBackupPayload();
+
+    if (backupPayload) {
+      await remoteStorage.saveIdentityBackup(backupPayload.publicKey, backupPayload);
+      console.log('✅ Initial backup created');
+    }
+
+  } catch (error) {
+    console.error('❌ Failed to ensure backup:', error);
+    // Don't throw - this is a background operation
+  }
+}
 
 function buildIdentitySharePayload() {
   if (!currentIdentity) return '';
@@ -92,12 +369,22 @@ async function init() {
   console.log('Initializing SDK Demo...');
 
   try {
-    // Note: Old Filebase S3 remote storage removed - profiles are now local-only
-    // For IPFS storage, users configure Pinata in the UI below
-    console.log('ℹ️ Profile storage: Local IndexedDB only');
-    console.log('ℹ️ IPFS storage: Configure Pinata below for simple-service.html');
+    // Check for Pinata storage configuration
+    const storageConfig = await getStorageConfig();
 
-    // Create platform instance (no remote storage)
+    if (storageConfig) {
+      console.log('📦 Pinata storage configured - backups enabled');
+
+      // Decrypt JWT from storage config (requires logged in user)
+      // Note: We'll initialize remote storage after login when we have the private key
+      hasRemoteStorage = true;
+    } else {
+      console.log('ℹ️ No IPFS storage configured - backups disabled');
+      console.log('ℹ️ Configure Pinata below to enable account backups and recovery');
+      hasRemoteStorage = false;
+    }
+
+    // Create platform instance (remote storage will be added after login)
     platform = new IdentityPlatform();
     await platform.init();
 
@@ -356,6 +643,8 @@ async function handleImportAccount(event) {
   const publicKey = document.getElementById('import-publickey').value.trim();
   const username = document.getElementById('import-username').value.trim();
   const password = document.getElementById('import-password').value;
+  const cidInput = document.getElementById('import-cid');
+  const manualCid = cidInput?.value.trim() || '';
   const errorDiv = document.getElementById('import-error');
   const statusDiv = document.getElementById('import-status');
 
@@ -363,27 +652,49 @@ async function handleImportAccount(event) {
     errorDiv.style.display = 'none';
     statusDiv.style.display = 'none';
 
-    if (!hasRemoteStorage) {
-      throw new Error('Remote storage not configured. Cannot fetch backup from Filebase.');
-    }
-
     statusDiv.style.display = 'block';
-    statusDiv.textContent = '🔍 Fetching your encrypted backup from Filebase...';
-
     console.log('Importing account for public key:', publicKey);
 
-    // Fetch the unified user file to get the encrypted backup
-    const userFile = await platform.remoteStorage.loadUnifiedUser(publicKey);
+    let userFile = null;
+    let fetchedVia = '';
+
+    if (manualCid) {
+      statusDiv.textContent = '🌐 Fetching your encrypted backup from public IPFS gateways...';
+      userFile = await loadUnifiedUserFromCid(manualCid);
+      fetchedVia = 'cid';
+    } else {
+      const providerSelect = document.getElementById('ipfs-provider');
+      const jwtInput = document.getElementById('provider-jwt');
+      const providerValue = providerSelect?.value || '';
+      const jwtValue = jwtInput?.value.trim() || '';
+
+      if (providerSelect && jwtValue && !providerValue) {
+        providerSelect.value = 'pinata';
+      }
+
+      if (remoteStorage || jwtValue) {
+        const activeRemoteStorage = remoteStorage || await ensureRemoteStorageForRecovery();
+        statusDiv.textContent = '🔍 Fetching your encrypted backup from Pinata IPFS...';
+        userFile = await activeRemoteStorage.loadUnifiedUser(publicKey);
+        fetchedVia = 'pinata';
+      } else if (hasRemoteStorage) {
+        throw new Error('Remote storage configuration exists but requires your Pinata API key. Provide the key above or enter a backup CID.');
+      } else {
+        throw new Error('Provide either the backup CID above or your Pinata API key in the storage section before importing.');
+      }
+    }
 
     if (!userFile) {
-      throw new Error('No backup found for this public key on Filebase.');
+      throw new Error('No backup found for this public key.');
     }
 
     if (!userFile.private) {
       throw new Error('This account has no encrypted backup. Cannot recover.');
     }
 
-    statusDiv.textContent = '🔓 Decrypting your private key...';
+    statusDiv.textContent = fetchedVia === 'cid'
+      ? '🔓 Decrypting your private key from IPFS backup...'
+      : '🔓 Decrypting your private key...';
 
     // Import account from backup
     const backup = {
@@ -503,13 +814,17 @@ async function showMainApp() {
   document.getElementById('auth-gate').style.display = 'none';
   document.getElementById('main-app').style.display = 'block';
 
+  // Simple blocking load - like Filebase (reliable!)
+  await initializeRemoteStorage();
   await loadCurrentProfile();
   await renderIdentity();
   await renderQRCode();
   await renderCollaborators();
   await renderStats();
-  await loadStorageConfigUI();  // Load storage provider configuration
+  await loadStorageConfigUI();
 }
+
+// Removed complex background sync - using SDK's built-in sync methods instead
 
 // Load current user's profile
 async function loadCurrentProfile() {
@@ -518,19 +833,17 @@ async function loadCurrentProfile() {
   currentProfile = await platform.getProfile(currentIdentity.publicKey);
 
   if (!currentProfile) {
-    // Create default profile and sync to remote if available
+    // Create default profile and sync if remote storage is available
     currentProfile = await platform.saveProfile({
       publicKey: currentIdentity.publicKey,
       encryptionPublicKey: currentIdentity.encryptionPublicKey,
-      username: currentIdentity.username, // Include username in profile
+      username: currentIdentity.username,
       displayName: currentIdentity.username,
       avatar: null,
       bio: null
     }, { syncRemote: hasRemoteStorage });
 
-    if (hasRemoteStorage) {
-      console.log('✅ Initial profile synced to Filebase (with encrypted backup)');
-    }
+    console.log('✅ Initial profile created');
   }
 }
 
@@ -626,11 +939,7 @@ async function renderCollaborators() {
   const container = document.getElementById('collaborators-list');
 
   try {
-    // Sync profiles from remote storage if available to get latest updates
-    if (hasRemoteStorage) {
-      console.log('🔄 Syncing collaborator profiles from remote storage...');
-    }
-
+    // Simple Filebase pattern: SDK handles sync
     const collaborators = await platform.listCollaboratorsWithProfiles({
       syncRemote: hasRemoteStorage
     });
@@ -638,7 +947,9 @@ async function renderCollaborators() {
     cachedCollaborators = collaborators;
 
     if (hasRemoteStorage) {
-      console.log(`✅ Loaded ${collaborators.length} collaborators with synced profiles`);
+      console.log(`✅ Loaded ${collaborators.length} collaborators (synced with Pinata)`);
+    } else {
+      console.log(`✅ Loaded ${collaborators.length} collaborators (local only)`);
     }
 
     if (collaborators.length === 0) {
@@ -1024,7 +1335,7 @@ async function handleSaveProfile(event) {
       avatarData = await readFileAsDataURL(avatarInput.files[0]);
     }
 
-    // Update profile (sync to remote if available)
+    // Simple Filebase pattern: SDK handles everything
     currentProfile = await platform.updateProfile(
       currentIdentity.publicKey,
       {
@@ -1032,11 +1343,11 @@ async function handleSaveProfile(event) {
         bio: bio || null,
         avatar: avatarData
       },
-      { syncRemote: hasRemoteStorage } // Auto-sync to Filebase if enabled
+      { syncRemote: hasRemoteStorage }
     );
 
-    const syncMsg = hasRemoteStorage ? ' Profile synced to Filebase!' : ' (Saved locally only)';
-    showToast('Profile updated successfully!' + syncMsg, 'success');
+    const syncMsg = hasRemoteStorage ? ' (synced to Pinata)' : ' (local only)';
+    showToast('Profile updated!' + syncMsg, 'success');
     hideProfileDialog();
 
     // Re-render identity card
@@ -1227,13 +1538,15 @@ async function handleSaveStorageConfig(event) {
       gateway: gateway || null
     });
 
-    statusEl.textContent = `✅ ${provider} configuration saved successfully!`;
+    await attachRemoteStorage(cleanJwt, gateway || null);
+
+    statusEl.textContent = `✅ ${provider} configuration saved and remote backups enabled!`;
     statusEl.style.display = 'block';
 
     // Clear the JWT input for security
     document.getElementById('provider-jwt').value = '';
 
-    showToast('Storage configuration saved!', 'success');
+    showToast('Pinata remote storage enabled!', 'success');
 
   } catch (error) {
     console.error('Failed to save storage config:', error);
@@ -1258,6 +1571,16 @@ async function handleClearStorageConfig() {
     document.getElementById('provider-jwt').value = '';
     document.getElementById('provider-gateway').value = '';
     document.getElementById('provider-help-links').style.display = 'none';
+
+    if (platform.profileService) {
+      platform.profileService.remoteStorage = null;
+    }
+    if (platform.collaboratorService?.profileService) {
+      platform.collaboratorService.profileService.remoteStorage = null;
+    }
+    remoteStorage = null;
+    platform.remoteStorage = null;
+    hasRemoteStorage = false;
 
     const statusEl = document.getElementById('storage-config-status');
     statusEl.textContent = '✅ Storage configuration cleared';

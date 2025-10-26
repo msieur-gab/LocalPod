@@ -82,13 +82,18 @@
         <!-- Import Account Form -->
         <form id="import-form" style="display: none;">
           <p class="info-text">
-            🔄 <strong>Recover your account</strong> from Filebase using your public key and password.
+            🔄 <strong>Recover your account</strong> from Pinata IPFS using your public key and password.
             Your encrypted backup will be fetched and decrypted.
           </p>
           <div class="form-group">
             <label for="import-publickey">Public Key</label>
             <textarea id="import-publickey" required placeholder="Paste your public key here..." rows="2"></textarea>
             <small>Get this from your identity card or QR code</small>
+          </div>
+          <div class="form-group">
+            <label for="import-cid">Backup CID (Optional)</label>
+            <input type="text" id="import-cid" placeholder="Qm... or bafy..." autocomplete="off">
+            <small>If you recorded the backup CID, paste it here to recover without a Pinata API key.</small>
           </div>
           <div class="form-group">
             <label for="import-username">New Username (Local)</label>
@@ -261,7 +266,7 @@
           <p class="info-text" id="auto-discovery-info">
             🎉 <strong>Auto-Discovery:</strong> Share the JSON payload generated from an identity card
             (QR or copy) to add collaborators with both signing and encryption keys. The SDK will
-            automatically fetch their profile (name, avatar, bio) from Filebase when available.
+            automatically fetch their profile (name, avatar, bio) from Pinata IPFS when available.
             <br><br>
             <strong>Status:</strong> Remote storage is <span id="remote-status" style="font-weight: 700;">checking...</span>
           </p>
