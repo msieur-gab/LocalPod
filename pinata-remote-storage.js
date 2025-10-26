@@ -25,20 +25,17 @@ export class PinataRemoteStorage {
     // In-memory cache for unified user files (avoid slow IPFS loads)
     this.unifiedUserCache = new Map();
 
-    // Fallback gateways for faster retrieval
+    // Fallback gateways with CORS support
+    // Note: Use custom Pinata gateway (dedicated) to avoid rate limits
     this.fallbackGateways = [
-      this.gateway,                    // Primary (custom or Pinata)
-      'dweb.link',                     // Fast, reliable
+      'dweb.link',                     // Fast, reliable, CORS-enabled
       'ipfs.io',                       // Official IPFS gateway
-      'cloudflare-ipfs.com',          // Cloudflare (very fast)
-      'w3s.link'                       // Web3.storage (fast)
+      'w3s.link',                       // Web3.storage (fast)
+      'cloudflare-ipfs.com'            // Cloudflare
     ];
 
-    // Remove duplicates and filter out the primary
-    this.fallbackGateways = [...new Set(this.fallbackGateways)];
-
     console.log('📦 PinataRemoteStorage initialized with in-memory cache');
-    console.log(`🚀 Primary gateway: ${this.gateway}`);
+    console.log(`🚀 Custom gateway: ${this.gateway || 'none (using public gateways)'}`);
   }
 
   /**
@@ -454,27 +451,8 @@ export class PinataRemoteStorage {
    * Download file with gateway fallback and racing
    */
   async _downloadFile(cid) {
-    const primaryGateway = this.fallbackGateways[0];
-    const primaryUrl = `https://${primaryGateway}/ipfs/${cid}`;
-    const timeout = 5000; // 5 seconds
-
-    console.log(`📥 Fetching from primary gateway: ${primaryGateway}`);
-
-    try {
-      // Try primary gateway with timeout
-      const response = await this._fetchWithTimeout(primaryUrl, timeout);
-
-      if (response.ok) {
-        console.log(`✅ Retrieved from ${primaryGateway}`);
-        return await response.json();
-      }
-    } catch (error) {
-      console.warn(`⚠️ Primary gateway failed: ${error.message}`);
-    }
-
-    // Primary failed - race all fallback gateways
-    console.log(`🏁 Racing ${this.fallbackGateways.length} gateways...`);
-
+    // Skip unreliable primary gateway, race all public gateways directly
+    console.log(`🏁 Racing ${this.fallbackGateways.length} public IPFS gateways...`);
     return await this._raceGateways(cid);
   }
 
